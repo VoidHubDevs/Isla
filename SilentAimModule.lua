@@ -1,6 +1,6 @@
 local SilentAimModule = {}
 
-local VSkillModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/jaanu91/Ip/refs/heads/main/Uo"))()
+local VSkillModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidHubDevs/Isla/refs/heads/main/VSkillModule.lua"))()
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
