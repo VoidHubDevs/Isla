@@ -1,10 +1,20 @@
 local RaidsModule = {}
 
-local player = game.Players.LocalPlayer
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
 local backpack = player:WaitForChild("Backpack")
 local character = player.Character or player.CharacterAdded:Wait()
-local RunService = game:GetService("RunService")
-local workspace = game:GetService("Workspace")
+
+local function getHRP()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
+end
+
 local waterPart = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WaterBase-Plane")
 
 local Auto_Buy_Chips_Raid = false
@@ -25,7 +35,7 @@ local weaponsToCheck = {"Godhuman", "Sanguine Art", "Dragon Talon"}
 
 local function checkForWeapons()
 	for _, weaponName in ipairs(weaponsToCheck) do
-		if backpack:FindFirstChild(weaponName) or character:FindFirstChild(weaponName) then
+		if backpack:FindFirstChild(weaponName) or (player.Character and player.Character:FindFirstChild(weaponName)) then
 			return weaponName
 		end
 	end
@@ -34,114 +44,87 @@ end
 
 local SelectWeapon = checkForWeapons()
 
-function AutoHaki()
-    if not game:GetService("Players").LocalPlayer.Character:FindFirstChild("HasBuso") then
-        game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("Buso")
-    end
+local function safeInvokeRemote(remote, ...)
+    if not remote then return end
+    pcall(function() remote:InvokeServer(...) end)
 end
 
-function EquipTool(ToolSe)
-    if game.Players.LocalPlayer.Backpack:FindFirstChild(ToolSe) then
-        local tool = game.Players.LocalPlayer.Backpack:FindFirstChild(ToolSe)
-        wait()
-        game.Players.LocalPlayer.Character.Humanoid:EquipTool(tool)
-    end
+local function safeFire(remote, ...)
+    if not remote then return end
+    pcall(function() remote:FireServer(...) end)
 end
+
+local function equipTool(toolName)
+    pcall(function()
+        local bp = player:FindFirstChild("Backpack")
+        if not bp then return end
+        local tool = bp:FindFirstChild(toolName) or player.Character and player.Character:FindFirstChild(toolName)
+        if tool and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+            player.Character.Humanoid:EquipTool(tool)
+        end
+    end)
+end
+
+local function safeWaitForChild(parent, name, timeout)
+    timeout = timeout or 5
+    if not parent then return nil end
+    local ok, res = pcall(function() return parent:WaitForChild(name, timeout) end)
+    if ok then return res end
+    return parent:FindFirstChild(name)
+end
+
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CollectionService = game:GetService("CollectionService")
+local TeleportService = game:GetService("TeleportService")
+
+local Remotes = safeWaitForChild(ReplicatedStorage, "Remotes")
+local Validator = Remotes and safeWaitForChild(Remotes, "Validator")
+local CommF = Remotes and safeWaitForChild(Remotes, "CommF_")
+local CommE = Remotes and safeWaitForChild(Remotes, "CommE")
+
+local ChestModels = workspace:FindFirstChild("ChestModels")
+local WorldOrigin = workspace:FindFirstChild("_WorldOrigin")
+local Characters = workspace:FindFirstChild("Characters")
+local Enemies = workspace:FindFirstChild("Enemies")
+local Map = workspace:FindFirstChild("Map")
+
+local EnemySpawns = WorldOrigin and safeWaitForChild(WorldOrigin, "EnemySpawns")
+local Locations = WorldOrigin and safeWaitForChild(WorldOrigin, "Locations")
+
+local Modules = safeWaitForChild(ReplicatedStorage, "Modules")
+local Net = Modules and safeWaitForChild(Modules, "Net")
+local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
+local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
+
+local Settings = {
+    AutoClick = true,
+    ClickDelay = 0,
+}
 
 do
-    local _ENV = (getgenv or getrenv or getfenv)()
-
-    local function SafeWaitForChild(parent, childName)
-        local success, result = pcall(function()
-            return parent:WaitForChild(childName)
-        end)
-        if not success or not result then
-            warn("noooooo: " .. childName)
-        end
-        return result
-    end
-
-    local function WaitChilds(path, ...)
-        local last = path
-        for _, child in {...} do
-            last = last:FindFirstChild(child) or SafeWaitForChild(last, child)
-            if not last then break end
-        end
-        return last
-    end
-
-    local VirtualInputManager = game:GetService("VirtualInputManager")
-    local CollectionService = game:GetService("CollectionService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local TeleportService = game:GetService("TeleportService")
-    local RunService = game:GetService("RunService")
-    local Players = game:GetService("Players")
-    local Player = Players.LocalPlayer
-
-    if not Player then
-        warn("Không tìm thấy người chơi cục bộ.")
-        return
-    end
-
-    local Remotes = SafeWaitForChild(ReplicatedStorage, "Remotes")
-    if not Remotes then return end
-
-    local Validator = SafeWaitForChild(Remotes, "Validator")
-    local CommF = SafeWaitForChild(Remotes, "CommF_")
-    local CommE = SafeWaitForChild(Remotes, "CommE")
-
-    local ChestModels = SafeWaitForChild(workspace, "ChestModels")
-    local WorldOrigin = SafeWaitForChild(workspace, "_WorldOrigin")
-    local Characters = SafeWaitForChild(workspace, "Characters")
-    local Enemies = SafeWaitForChild(workspace, "Enemies")
-    local Map = SafeWaitForChild(workspace, "Map")
-
-    local EnemySpawns = SafeWaitForChild(WorldOrigin, "EnemySpawns")
-    local Locations = SafeWaitForChild(WorldOrigin, "Locations")
-
-    local RenderStepped = RunService.RenderStepped
-    local Heartbeat = RunService.Heartbeat
-    local Stepped = RunService.Stepped
-
-    local Modules = SafeWaitForChild(ReplicatedStorage, "Modules")
-    local Net = SafeWaitForChild(Modules, "Net")
-
-    local sethiddenproperty = sethiddenproperty or function(...) return ... end
-    local setupvalue = setupvalue or (debug and debug.setupvalue)
-    local getupvalue = getupvalue or (debug and debug.getupvalue)
-
-    local Settings = {
-        AutoClick = true,
-        ClickDelay = 0,
-    }
-
-    local Module = {}
-
-    Module.FastAttack = (function()
-        if _ENV.rz_FastAttack then
-            return _ENV.rz_FastAttack
-        end
-
-        local FastAttack = {
+    local FastAttack
+    if _G.rz_FastAttack then
+        FastAttack = _G.rz_FastAttack
+    else
+        FastAttack = {
             Distance = 100,
             attackMobs = true,
             attackPlayers = true,
             Equipped = nil
         }
 
-        local RegisterAttack = SafeWaitForChild(Net, "RE/RegisterAttack")
-        local RegisterHit = SafeWaitForChild(Net, "RE/RegisterHit")
-
-        local function IsAlive(character)
-        return character and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0
+        local function IsAlive(model)
+            return model and model:FindFirstChild("Humanoid") and model.Humanoid.Health > 0
         end
 
         local function ProcessEnemies(OthersEnemies, Folder)
             local BasePart = nil
-            for _, Enemy in Folder:GetChildren() do
+            if not Folder or not Folder.GetChildren then return nil end
+            for _, Enemy in ipairs(Folder:GetChildren()) do
                 local Head = Enemy:FindFirstChild("Head")
-                if Head and IsAlive(Enemy) and Player:DistanceFromCharacter(Head.Position) < FastAttack.Distance then
-                    if Enemy ~= Player.Character then
+                local hrp = getHRP()
+                if Head and IsAlive(Enemy) and hrp and (hrp.Position - Head.Position).Magnitude < FastAttack.Distance then
+                    if Enemy ~= player.Character then
                         table.insert(OthersEnemies, { Enemy, Head })
                         BasePart = Head
                     end
@@ -152,8 +135,8 @@ do
 
         function FastAttack:Attack(BasePart, OthersEnemies)
             if not BasePart or #OthersEnemies == 0 then return end
-            RegisterAttack:FireServer(Settings.ClickDelay or 0)
-            RegisterHit:FireServer(BasePart, OthersEnemies)
+            safeFire(RegisterAttack, Settings.ClickDelay or 0)
+            safeFire(RegisterHit, BasePart, OthersEnemies)
         end
 
         function FastAttack:AttackNearest()
@@ -161,16 +144,16 @@ do
             local Part1 = ProcessEnemies(OthersEnemies, Enemies)
             local Part2 = ProcessEnemies(OthersEnemies, Characters)
             if #OthersEnemies > 0 then
-                self:Attack(Part1 or Part2, OthersEnemies)
+                FastAttack:Attack(Part1 or Part2, OthersEnemies)
             else
                 task.wait(0)
             end
         end
 
         function FastAttack:BladeHits()
-            local Equipped = IsAlive(Player.Character) and Player.Character:FindFirstChildOfClass("Tool")
+            local Equipped = player.Character and player.Character:FindFirstChildOfClass("Tool")
             if Equipped and Equipped.ToolTip ~= "Gun" then
-                self:AttackNearest()
+                FastAttack:AttackNearest()
             else
                 task.wait(0)
             end
@@ -184,128 +167,102 @@ do
             end
         end)
 
-        _ENV.rz_FastAttack = FastAttack
-        return FastAttack
-    end)()
+        _G.rz_FastAttack = FastAttack
+    end
 end
 
-function Tween2(KG)
-    local Distance = (KG.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
-    local Speed = 160
-    local tweenInfo = TweenInfo.new(Distance / Speed, Enum.EasingStyle.Linear)
-    local tween = game:GetService("TweenService"):Create(game.Players.LocalPlayer.Character.HumanoidRootPart, tweenInfo, {
-        CFrame = KG
-    })
+local function tweenToCFrame(targetCFrame)
+    local hrp = getHRP()
+    if not hrp or not targetCFrame then return end
+    local Distance = (targetCFrame.Position - hrp.Position).Magnitude
+    local Speed = 350
+    local tweenInfo = TweenInfo.new(math.max(Distance / Speed, 0.01), Enum.EasingStyle.Linear)
+    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
     tween:Play()
-    if _G.StopTween2 then
-        tween:Cancel()
-    end
-    _G.Clip2 = true
-    wait(Distance / Speed)
-    _G.Clip2 = false
+    return tween
 end
-function BKP(Point)
-    game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = Point
-    task.wait()
-    game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = Point
-end
-TweenSpeed = 350
-function Tween(KG)
-    local Distance = (KG.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
-    local Speed = TweenSpeed  
-    local tweenInfo = TweenInfo.new(Distance / Speed, Enum.EasingStyle.Linear)
-    local tween = game:GetService("TweenService"):Create(game.Players.LocalPlayer.Character.HumanoidRootPart, tweenInfo, {
-        CFrame = KG
-    })
-    tween:Play()
-    if _G.StopTween then
-        tween:Cancel()
-    end
+
+local function teleportInstant(point)
+    pcall(function()
+        local hrp = getHRP()
+        if hrp then hrp.CFrame = point end
+    end)
 end
 
 RunService.Heartbeat:Connect(function()
-	if bringmob 
-		and game.Players.LocalPlayer.Character 
-		and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart") 
-	then
-		pcall(function()
-			local player = game.Players.LocalPlayer
-			local char = player.Character
-			local hrp = char:FindFirstChild("HumanoidRootPart")
-			local enemies = workspace:FindFirstChild("Enemies")
+    if bringmob and player.Character and getHRP() then
+        pcall(function()
+            local hrp = getHRP()
+            local enemyList = workspace:FindFirstChild("Enemies")
+            if not enemyList or not hrp then return end
 
-			if not enemies or not hrp then return end
+            local nearestEnemy = nil
+            local nearestDistance = math.huge
+            local MAX_RANGE = 400
 
-			local nearestEnemy = nil
-			local nearestDistance = math.huge
-			local MAX_RANGE = 400
+            for _, enemy in pairs(enemyList:GetChildren()) do
+                local hrpEnemy = enemy:FindFirstChild("HumanoidRootPart")
+                local hum = enemy:FindFirstChild("Humanoid")
+                if hrpEnemy and hum and hum.Health > 0 then
+                    local dist = (hrpEnemy.Position - hrp.Position).Magnitude
+                    if dist < nearestDistance and dist <= MAX_RANGE then
+                        nearestEnemy = hrpEnemy
+                        nearestDistance = dist
+                    end
+                end
+            end
 
-			for _, enemy in pairs(enemies:GetChildren()) do
-				local hrpEnemy = enemy:FindFirstChild("HumanoidRootPart")
-				local hum = enemy:FindFirstChild("Humanoid")
-
-				if hrpEnemy and hum and hum.Health > 0 then
-					local dist = (hrpEnemy.Position - hrp.Position).Magnitude
-					if dist < nearestDistance and dist <= MAX_RANGE then
-						nearestEnemy = hrpEnemy
-						nearestDistance = dist
-					end
-				end
-			end
-
-			if nearestEnemy then
-				local abovePos = nearestEnemy.CFrame * CFrame.new(0, 25, 0)
-				Tween(abovePos)
-			else
-				-- No enemy within range; ignore tween
-			end
-		end)
-	end
+            if nearestEnemy then
+                local abovePos = nearestEnemy.CFrame * CFrame.new(0, 25, 0)
+                tweenToCFrame(abovePos)
+            end
+        end)
+    end
 end)
 
 task.spawn(function()
     while task.wait(2) do
         if Auto_Buy_Chips_Raid and SelectChip then
             pcall(function()
-	            if game:GetService("Players")["LocalPlayer"].PlayerGui.Main.Timer.Visible == false then
-					if not game:GetService("Players").LocalPlayer.Backpack:FindFirstChild("Special Microchip") then
-		                local args = {"RaidsNpc", "Select", SelectChip}
-		                game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer(unpack(args))
-					end
-				end
+                local playerGui = player:FindFirstChild("PlayerGui")
+                local main = playerGui and playerGui:FindFirstChild("Main")
+                local timerVisible = main and main:FindFirstChild("Timer") and main.Timer.Visible
+                if timerVisible == false then
+                    if not backpack:FindFirstChild("Special Microchip") then
+                        safeInvokeRemote(CommF, "RaidsNpc", "Select", SelectChip)
+                    end
+                end
             end)
         end
     end
 end)
 
-spawn(function()
+task.spawn(function()
     while task.wait(0.1) do
         pcall(function()
             if not Auto_StartRaidSecond then return end
 
-            local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+            local playerGui = player:FindFirstChild("PlayerGui")
             local mainGui = playerGui and playerGui:FindFirstChild("Main")
             local timerVisible = mainGui and mainGui:FindFirstChild("Timer") and mainGui.Timer.Visible
 
             if timerVisible == false then
-                local backpack = game:GetService("Players").LocalPlayer:FindFirstChild("Backpack")
                 local hasChip = backpack and backpack:FindFirstChild("Special Microchip")
 
                 if hasChip then
-                    while Auto_StartRaidSecond and timerVisible == false and backpack:FindFirstChild("Special Microchip") do                        
+                    while Auto_StartRaidSecond and timerVisible == false and backpack:FindFirstChild("Special Microchip") do
                         local cd = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("CircleIsland")
                         cd = cd and cd:FindFirstChild("RaidSummon2") and cd.RaidSummon2:FindFirstChild("Button")
                         cd = cd and cd:FindFirstChild("Main") and cd.Main:FindFirstChild("ClickDetector")
                         if cd then
-                            fireclickdetector(cd)
+                            pcall(function() fireclickdetector(cd) end)
                         end
 
                         task.wait(0.6)
 
-                        playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+                        playerGui = player:FindFirstChild("PlayerGui")
                         mainGui = playerGui and playerGui:FindFirstChild("Main")
                         timerVisible = mainGui and mainGui:FindFirstChild("Timer") and mainGui.Timer.Visible
-                        backpack = game:GetService("Players").LocalPlayer:FindFirstChild("Backpack")
                         if not backpack then break end
                     end
                 end
@@ -314,17 +271,16 @@ spawn(function()
     end
 end)
 
-spawn(function()
+task.spawn(function()
     while task.wait(0.1) do
         pcall(function()
             if not Auto_StartRaidThird then return end
 
-            local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+            local playerGui = player:FindFirstChild("PlayerGui")
             local mainGui = playerGui and playerGui:FindFirstChild("Main")
             local timerVisible = mainGui and mainGui:FindFirstChild("Timer") and mainGui.Timer.Visible
 
             if timerVisible == false then
-                local backpack = game:GetService("Players").LocalPlayer:FindFirstChild("Backpack")
                 local hasChip = backpack and backpack:FindFirstChild("Special Microchip")
 
                 if hasChip then
@@ -333,15 +289,14 @@ spawn(function()
                         cd = cd and cd:FindFirstChild("RaidSummon2") and cd.RaidSummon2:FindFirstChild("Button")
                         cd = cd and cd:FindFirstChild("Main") and cd.Main:FindFirstChild("ClickDetector")
                         if cd then
-                            fireclickdetector(cd)
+                            pcall(function() fireclickdetector(cd) end)
                         end
 
                         task.wait(0.6)
 
-                        playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+                        playerGui = player:FindFirstChild("PlayerGui")
                         mainGui = playerGui and playerGui:FindFirstChild("Main")
                         timerVisible = mainGui and mainGui:FindFirstChild("Timer") and mainGui.Timer.Visible
-                        backpack = game:GetService("Players").LocalPlayer:FindFirstChild("Backpack")
                         if not backpack then break end
                     end
                 end
@@ -350,17 +305,14 @@ spawn(function()
     end
 end)
 
-spawn(function()
+task.spawn(function()
     local visitedIslands = {}
 
     while task.wait(1) do
         if AutoNextIsland then
             pcall(function()
-                local player = game.Players.LocalPlayer
-                local character = player.Character
-                local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                local locations = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
-
+                local hrp = getHRP()
+                local locations = WorldOrigin and WorldOrigin:FindFirstChild("Locations")
                 if not hrp or not locations then return end
 
                 local pos = hrp.Position
@@ -377,11 +329,9 @@ spawn(function()
                         local distance = (island.Position - hrp.Position).Magnitude
 
                         if distance <= 3400 then
-                            Tween(island.CFrame)
+                            tweenToCFrame(island.CFrame)
                             visitedIslands[islandName] = true
-                            wait(0.5)
-                        else
-                            -- too far
+                            task.wait(0.5)
                         end
                     end
                 end
@@ -393,56 +343,36 @@ end)
 task.spawn(function()
     while task.wait(0.5) do
         if AutoKill then
-	        EquipTool(SelectWeapon)
-			AutoHaki()
+	        equipTool(SelectWeapon)
+			pcall(function()
+                safeInvokeRemote(CommF, "Buso")
+            end)
         end
     end
 end)
 
-spawn(
-    function()
-        while task.wait() do
-            if AutoAwakenAbilities then
-                pcall(
-                    function()
-                        game:GetService("ReplicatedStorage").Remotes.CommF_:InvokeServer("Awakener", "Awaken")
-                    end
-                )
-            end
+task.spawn(function()
+    while task.wait() do
+        if AutoAwakenAbilities then
+            pcall(function()
+                safeInvokeRemote(CommF, "Awakener", "Awaken")
+            end)
         end
     end
-)
+end)
 
-spawn(function()
-	local ReplicatedStorage = game:GetService("ReplicatedStorage")
-	local CommF = ReplicatedStorage.Remotes.CommF_
-
+task.spawn(function()
+	local CommFLocal = CommF
 	local fruits = {
-		"Rocket-Rocket",
-		"Spin-Spin",
-		"Chop-Chop",
-		"Spring-Spring",
-		"Bomb-Bomb",
-		"Smoke-Smoke",
-		"Spike-Spike",
-		"Flame-Flame",
-		"Falcon-Falcon",
-		"Ice-Ice",
-		"Sand-Sand",
-		"Dark-Dark",
-		"Ghost-Ghost",
-		"Diamond-Diamond",
-		"Light-Light",
-		"Rubber-Rubber",
-		"Barrier-Barrier"
+		"Rocket-Rocket","Spin-Spin","Chop-Chop","Spring-Spring","Bomb-Bomb","Smoke-Smoke","Spike-Spike",
+		"Flame-Flame","Falcon-Falcon","Ice-Ice","Sand-Sand","Dark-Dark","Ghost-Ghost","Diamond-Diamond",
+		"Light-Light","Rubber-Rubber","Barrier-Barrier"
 	}
 
-	local loadedFruit = nil
-
 	local function hasFruitInList()
-		local backpack = game.Players.LocalPlayer:FindFirstChild("Backpack")
-		if backpack then
-			for _, item in pairs(backpack:GetChildren()) do
+		local bp = player:FindFirstChild("Backpack")
+		if bp then
+			for _, item in pairs(bp:GetChildren()) do
 				for _, fruitName in ipairs(fruits) do
 					if item.Name == fruitName then
 						return true, item.Name
@@ -457,7 +387,6 @@ spawn(function()
 		pcall(function()
 			if Autofruit then
 				local hasFruit, ownedFruit = hasFruitInList()
-
 				if hasFruit then
 					task.wait(3)
 					return
@@ -466,9 +395,8 @@ spawn(function()
 				local fruitLoaded = false
 				for _, fruitName in ipairs(fruits) do
 					if not hasFruit then
-						local success = CommF:InvokeServer("LoadFruit", fruitName)
-						if success then
-							loadedFruit = fruitName
+						local ok, success = pcall(function() return CommFLocal and CommFLocal:InvokeServer("LoadFruit", fruitName) end)
+						if ok and success then
 							fruitLoaded = true
 							break
 						end
@@ -483,91 +411,202 @@ spawn(function()
 	end
 end)
 
-local TweenService = game:GetService("TweenService")
+local StuffsStored = {}
 
-local function Tweens(targetCFrame)
-	if not targetCFrame then return end
-	local info = TweenInfo.new(0.5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-	local goal = {CFrame = hrp.CFrame + Vector3.new(0, 1, 0)}
-	local tween = TweenService:Create(targetCFrame, info, goal)
-	tween:Play()
+local function isLavaPart(part)
+    if not part or not part:IsA("BasePart") then return false end
+    local n = part.Name and part.Name:lower() or ""
+    if n:find("lava") or n:find("magma") or n:find("kill") or n:find("damage") then
+        return true
+    end
+    local c = part.BrickColor and part.BrickColor.Name or ""
+    if c:lower():find("red") or c:lower():find("orange") then
+        return true
+    end
+    return false
 end
 
-spawn(function()
-	while task.wait(0.1) do
-		if BringFruits then
-			for _, v in pairs(workspace:GetChildren()) do
-				if v:IsA("Tool") and v:FindFirstChild("Handle") then
-					Tweens(v.Handle)
-				end
-			end
-		end
-	end
-end)
+local LavaEnabled = false
 
-spawn(function()
-    pcall(function()
-        game:GetService("RunService").Stepped:Connect(function()
-            if NoClip then
-                for _, v in pairs(game.Players.LocalPlayer.Character:GetDescendants()) do
-                    if v:IsA("BasePart") then
-                        v.CanCollide = false    
-                    end
-                end
-            end
-        end)
-    end)
-end)
-
-function RaidsModule:SetWalkWater(state: boolean)
-    WalkWaterEnabled = state
-    if WalkWaterEnabled then
-        waterPart.Size = Vector3.new(1000,110,1000)
-    else
-        waterPart.Size = Vector3.new(1000,80,1000)
+local function disableLavaOnce()
+    for _, v in ipairs(workspace:GetDescendants()) do
+        if isLavaPart(v) and not StuffsStored[v] then
+            StuffsStored[v] = {
+                CanTouch = v.CanTouch,
+                CanCollide = v.CanCollide,
+                Transparency = v.Transparency,
+                Anchored = v.Anchored
+            }
+            pcall(function()
+                v.CanTouch = false
+                v.CanCollide = false
+                v.Transparency = math.max(v.Transparency, 0.6)
+                v.Anchored = true
+            end)
+        end
     end
 end
 
-function RaidsModule:SetBuyChip(state: boolean)
-    Auto_Buy_Chips_Raid = state
+local function restoreLavaOnce()
+    for part, props in pairs(StuffsStored) do
+        pcall(function()
+            if part and part.Parent then
+                part.CanTouch = props.CanTouch
+                part.CanCollide = props.CanCollide
+                part.Transparency = props.Transparency
+                part.Anchored = props.Anchored
+            end
+        end)
+    end
+    table.clear(StuffsStored)
 end
 
-function RaidsModule:SetNoClip(state: boolean)
-    NoClip = state
+task.spawn(function()
+    while task.wait(1) do
+        if LavaEnabled then
+            pcall(disableLavaOnce)
+        end
+    end
+end)
+
+local function createRemoveLavaGui()
+    local success, err = pcall(function()
+        local playerGui = player:FindFirstChild("PlayerGui")
+        if not playerGui then return end
+
+        if playerGui:FindFirstChild("CPS_RemoveLavaGui") then return end
+
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "CPS_RemoveLavaGui"
+        screenGui.ResetOnSpawn = false
+        screenGui.Parent = playerGui
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 200, 0, 70)
+        frame.Position = UDim2.new(0.02, 0, 0.6, 0)
+        frame.BackgroundColor3 = Color3.fromRGB(16,16,16)
+        frame.BorderSizePixel = 0
+        frame.AnchorPoint = Vector2.new(0,0)
+        frame.Parent = screenGui
+
+        local corner = Instance.new("UICorner", frame)
+        corner.CornerRadius = UDim.new(0, 8)
+
+        local title = Instance.new("TextLabel", frame)
+        title.Size = UDim2.new(1, -16, 0, 20)
+        title.Position = UDim2.new(0, 8, 0, 6)
+        title.BackgroundTransparency = 1
+        title.Text = "Remove Lava"
+        title.Font = Enum.Font.GothamSemibold
+        title.TextSize = 14
+        title.TextColor3 = Color3.fromRGB(240,240,240)
+        title.TextXAlignment = Enum.TextXAlignment.Left
+
+        local flameLabel = Instance.new("TextLabel", frame)
+        flameLabel.Size = UDim2.new(1, -16, 0, 18)
+        flameLabel.Position = UDim2.new(0, 8, 0, 30)
+        flameLabel.BackgroundTransparency = 1
+        flameLabel.Text = "Lava: OFF"
+        flameLabel.Font = Enum.Font.Gotham
+        flameLabel.TextSize = 12
+        flameLabel.TextColor3 = Color3.fromRGB(200,200,200)
+        flameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local toggle = Instance.new("TextButton", frame)
+        toggle.Size = UDim2.new(0, 60, 0, 28)
+        toggle.Position = UDim2.new(1, -68, 0, 22)
+        toggle.BackgroundColor3 = Color3.fromRGB(36,36,36)
+        toggle.BorderSizePixel = 0
+        toggle.Text = "OFF"
+        toggle.Font = Enum.Font.GothamBold
+        toggle.TextSize = 12
+        toggle.TextColor3 = Color3.fromRGB(240,240,240)
+
+        local dragActive = false
+        local dragStart, startPos
+
+        frame.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragActive = true
+                dragStart = input.Position
+                startPos = frame.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragActive = false
+                    end
+                end)
+            end
+        end)
+
+        frame.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                dragInput = input
+            end
+        end)
+
+        game:GetService("UserInputService").InputChanged:Connect(function(input)
+            if dragActive and dragStart and input.Position and startPos then
+                local delta = input.Position - dragStart
+                frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        local function updateUI()
+            flameLabel.Text = "Lava: " .. (LavaEnabled and "ON" or "OFF")
+            toggle.Text = LavaEnabled and "ON" or "OFF"
+            toggle.BackgroundColor3 = LavaEnabled and Color3.fromRGB(0,180,120) or Color3.fromRGB(36,36,36)
+        end
+
+        toggle.MouseButton1Click:Connect(function()
+            LavaEnabled = not LavaEnabled
+            if LavaEnabled then
+                pcall(disableLavaOnce)
+            else
+                pcall(restoreLavaOnce)
+            end
+            updateUI()
+        end)
+
+        task.spawn(function()
+            while screenGui and screenGui.Parent do
+                updateUI()
+                task.wait(0.8)
+            end
+        end)
+    end)
+    if not success then
+        -- GUI not critical; ignore errors
+    end
 end
 
-function RaidsModule:SetStartRaidSecond(state: boolean)
-    Auto_StartRaidSecond = state
+createRemoveLavaGui()
+
+function RaidsModule:SetWalkWater(state)
+    WalkWaterEnabled = state
+    if waterPart then
+        if WalkWaterEnabled then
+            pcall(function() waterPart.Size = Vector3.new(1000,110,1000) end)
+        else
+            pcall(function() waterPart.Size = Vector3.new(1000,80,1000) end)
+        end
+    end
 end
 
-function RaidsModule:SetStartRaidThird(state: boolean)
-    Auto_StartRaidThird = state
-end
+function RaidsModule:SetBuyChip(state) Auto_Buy_Chips_Raid = state end
+function RaidsModule:SetNoClip(state) NoClip = state end
+function RaidsModule:SetStartRaidSecond(state) Auto_StartRaidSecond = state end
+function RaidsModule:SetStartRaidThird(state) Auto_StartRaidThird = state end
 
-function RaidsModule:SetAutoRaid(state: boolean)
+function RaidsModule:SetAutoRaid(state)
     AutoKill = state
     bringmob = state
     FastAttackEnabled = state
 end
 
-function RaidsModule:SetAutoAwaken(state: boolean)
-    AutoAwakenAbilities = state
-end
-
-function RaidsModule:SetBringFruits(state: boolean)
-    BringFruits = state
-end
-
-function RaidsModule:SetGetFruits(state: boolean)
-    Autofruit = state
-end
-
-function RaidsModule:SetNextIsland(state: boolean)
-    AutoNextIsland = state
-end
-
-function RaidsModule:SetSelectChip(chip: string)
-    SelectChip = chip
-end
+function RaidsModule:SetAutoAwaken(state) AutoAwakenAbilities = state end
+function RaidsModule:SetBringFruits(state) BringFruits = state end
+function RaidsModule:SetGetFruits(state) Autofruit = state end
+function RaidsModule:SetNextIsland(state) AutoNextIsland = state end
+function RaidsModule:SetSelectChip(chip) SelectChip = chip end
 
 return RaidsModule
