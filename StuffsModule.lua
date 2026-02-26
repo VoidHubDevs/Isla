@@ -1,114 +1,88 @@
 local StuffsModule = {}
 
-local PingsOrFpsEnabled = false
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local waterPart = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("WaterBase-Plane")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local Lighting = game:GetService("Lighting")
-local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-local Net = Modules:WaitForChild("Net")
-local RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
-local RegisterHit = Net:WaitForChild("RE/RegisterHit")
-local ShootGunEvent = Net:WaitForChild("RE/ShootGunEvent")
-local GunValidator = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
 
-local ScreenGui
-local FpsPingLabel
+local LocalPlayer = Players.LocalPlayer
+
+local PingsOrFpsEnabled = false
 local FpsBoostEnabled = false
 local InfiniteEnergy = false
 local FastAttackEnabled = false
 local WalkWaterEnabled = false
-local fog = false
+local Fog = false
 local Lava = false
 
-local fastConn
-local energyConnection
-local fpsBoostConn
-
-local savedSettings = {}
+local fpsConn, fastConn, energyConnection, fpsBoostConn = nil, nil, nil, nil
 local connections = {}
 
+local ScreenGui, FpsPingLabel = nil, nil
+
 local function createGui()
-	if ScreenGui then return end 
+    if ScreenGui then return end
+    
+    ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "FpsPingGui"
+    ScreenGui.ResetOnSpawn = false
+    
+    local success, parent = pcall(function()
+        return LocalPlayer:WaitForChild("PlayerGui")
+    end)
+    if not success then return end
+    
+    ScreenGui.Parent = parent
 
-	ScreenGui = Instance.new("ScreenGui")
-	ScreenGui.Name = "FpsPingGui"
-	ScreenGui.ResetOnSpawn = false
-	ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
-	FpsPingLabel = Instance.new("TextLabel")
-	FpsPingLabel.Name = "FpsPingLabel"
-	FpsPingLabel.Size = UDim2.new(0, 120, 0, 20)
-	FpsPingLabel.Position = UDim2.new(1, -10, 0, 10)
-	FpsPingLabel.AnchorPoint = Vector2.new(1, 0) 
-	FpsPingLabel.BackgroundTransparency = 1
-	FpsPingLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	FpsPingLabel.Font = Enum.Font.SourceSansBold
-	FpsPingLabel.TextSize = 18
-	FpsPingLabel.TextXAlignment = Enum.TextXAlignment.Right
-	FpsPingLabel.RichText = true
-	FpsPingLabel.Parent = ScreenGui
+    FpsPingLabel = Instance.new("TextLabel")
+    FpsPingLabel.Name = "FpsPingLabel"
+    FpsPingLabel.Size = UDim2.new(0, 120, 0, 20)
+    FpsPingLabel.Position = UDim2.new(1, -10, 0, 10)
+    FpsPingLabel.AnchorPoint = Vector2.new(1, 0)
+    FpsPingLabel.BackgroundTransparency = 1
+    FpsPingLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    FpsPingLabel.Font = Enum.Font.SourceSansBold
+    FpsPingLabel.TextSize = 18
+    FpsPingLabel.TextXAlignment = Enum.TextXAlignment.Right
+    FpsPingLabel.RichText = true
+    FpsPingLabel.Parent = ScreenGui
 end
-
-local lastTime = tick()
-local frameCount = 0
-local fps = 0
-local fpsConn
 
 local function startFPSLoop()
     if fpsConn then return end
     
-    fpsConn = RunService.RenderStepped:Connect(function(deltaTime)
+    local lastTime = tick()
+    local frameCount = 0
+    
+    fpsConn = RunService.RenderStepped:Connect(function()
         if not PingsOrFpsEnabled then
-            ScreenGui.Enabled = false
+            if ScreenGui then ScreenGui.Enabled = false end
             return
         end
         
         createGui()
-        ScreenGui.Enabled = true
+        if ScreenGui then ScreenGui.Enabled = true end
         
         frameCount = frameCount + 1
         if tick() - lastTime >= 1 then
-            fps = frameCount
+            local fps = frameCount
             frameCount = 0
             lastTime = tick()
+            
+            local ping = math.floor(LocalPlayer:GetNetworkPing() * 2000)
+            
+            local fpsColor = fps >= 50 and "00FF00" or (fps >= 30 and "FFA500" or "FF0000")
+            local pingColor = ping <= 80 and "00FF00" or (ping <= 150 and "FFFF00" or "FF0000")
+            
+            if FpsPingLabel then
+                FpsPingLabel.Text = string.format(
+                    '<font color="#%s">FPS: %d</font>  |  <font color="#%s">Ping: %dms</font>',
+                    fpsColor, fps, pingColor, ping
+                )
+            end
         end
-
-        local ping = math.floor(LocalPlayer:GetNetworkPing() * 2000)
-
-        local fpsColor
-        if fps >= 50 then
-            fpsColor = "00FF00"
-        elseif fps >= 30 then
-            fpsColor = "FFA500"
-        else
-            fpsColor = "FF0000"
-        end
-
-        local pingColor
-        if ping <= 80 then
-            pingColor = "00FF00"
-        elseif ping <= 150 then
-            pingColor = "FFFF00"
-        else
-            pingColor = "FF0000"
-        end
-
-        FpsPingLabel.Text = string.format(
-            '<font color="#%s">FPS: %d</font>  |  <font color="#%s">Ping: %dms</font>',
-            fpsColor,
-            fps,
-            pingColor,
-            ping
-        )
     end)
 end
 
@@ -120,90 +94,63 @@ local function stopFPSLoop()
 end
 
 local function FPSBoost()
-	Lighting.FogEnd = 1e9
-	Lighting.FogStart = 1e9
-	Lighting.ClockTime = 12
-	Lighting.GlobalShadows = false
-	Lighting.Brightness = 2
-	Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+    Lighting.FogEnd = 1e9
+    Lighting.FogStart = 1e9
+    Lighting.ClockTime = 12
+    Lighting.GlobalShadows = false
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
 
-	if Terrain then
-	    Terrain.WaterWaveSize = 0
-	    Terrain.WaterWaveSpeed = 0
-	    Terrain.WaterReflectance = 0
-	    Terrain.WaterTransparency = 1
-	end
-	
+    local Terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 1
+    end
+    
     for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("MeshPart") or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
+        if v:IsA("BasePart") or v:IsA("UnionOperation") or v:IsA("MeshPart") then
             v.Material = Enum.Material.SmoothPlastic
             v.Reflectance = 0
-        elseif v:IsA("Decal") or v:IsA("Texture") then  
-		    v:Destroy()
+            v.CastShadow = false
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v:Destroy()
         elseif v:IsA("ParticleEmitter") then
             v.Lifetime = NumberRange.new(0, 0)
         elseif v:IsA("Trail") then
-	        v.Lifetime = 0
+            v.Lifetime = 0
         elseif v:IsA("Explosion") then
-	        v.BlastPressure = 1
-			v.BlastRadius = 1
-        elseif v:IsA("BasePart") then
-            v.CastShadow = false
+            v.BlastPressure = 1
+            v.BlastRadius = 1
         elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
-			v.Enabled = false
+            v.Enabled = false
         end
     end
     
     if fpsBoostConn then
-	    fpsBoostConn:Disconnect()
-	    fpsBoostConn = nil
-	end
-	
-	fpsBoostConn = Workspace.DescendantAdded:Connect(function(v)
-	    task.wait(0.1)
+        fpsBoostConn:Disconnect()
+        fpsBoostConn = nil
+    end
+    
+    fpsBoostConn = Workspace.DescendantAdded:Connect(function(v)
+        task.wait(0.1)
         if v:IsA("ParticleEmitter") then
             v.Lifetime = NumberRange.new(0, 0)
         elseif v:IsA("Trail") then
-	        v.Lifetime = 0
+            v.Lifetime = 0
         elseif v:IsA("Explosion") then
-	        v.BlastPressure = 1
-			v.BlastRadius = 1
-	    elseif v:IsA("BasePart") then
-	        v.CastShadow = false
-		elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
-			v.Enabled = false
-	    end
-	end)
+            v.BlastPressure = 1
+            v.BlastRadius = 1
+        elseif v:IsA("BasePart") then
+            v.CastShadow = false
+        elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
+            v.Enabled = false
+        end
+    end)
 end
 
-do
-	if fog then
-		local c = game.Lighting
-	    c.FogEnd = 100000
-	    for r, v in pairs(c:GetDescendants()) do
-	        if v:IsA("Atmosphere") then
-	            v:Destroy()
-	        end
-	    end
-	end
-end
-
-do
-	if Lava then
-		for i, v in pairs(game.Workspace:GetDescendants()) do
-			if v.Name == "Lava" then
-				v:Destroy();
-			end;
-		end;
-		for i, v in pairs(game.ReplicatedStorage:GetDescendants()) do
-			if v.Name == "Lava" then
-				v:Destroy();
-			end;
-		end;
-	end
-end
-
-local function infinitestam(state)
+local function infiniteStam(state)
     InfiniteEnergy = state
     
     local character = LocalPlayer.Character
@@ -251,20 +198,45 @@ function FastAttack.new()
         M1Combo = 0,
         EnemyRootPart = nil,
         Connections = {},
-        Overheat = {
-            Dragonstorm = {
-                Cooldown = 0,
-                Distance = 350,
-            }
-        },
+        CombatFlags = nil,
+        ShootFunction = nil,
+        HitFunction = nil,
+        SpecialShoots = {}
     }, FastAttack)
     
     pcall(function()
-        self.CombatFlags = require(Modules.Flags).COMBAT_REMOTE_THREAD
-        self.ShootFunction = getupvalue(require(ReplicatedStorage.Controllers.CombatController).Attack, 9)
-        local LocalScript = LocalPlayer:WaitForChild("PlayerScripts"):FindFirstChildOfClass("LocalScript")
-        if LocalScript and getsenv then
-            self.HitFunction = getsenv(LocalScript)._G.SendHitsToServer
+        local Modules = ReplicatedStorage:WaitForChild("Modules")
+        local Net = Modules:WaitForChild("Net")
+        
+        self.RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
+        self.RegisterHit = Net:WaitForChild("RE/RegisterHit")
+        self.ShootGunEvent = Net:WaitForChild("RE/ShootGunEvent")
+        self.GunValidator = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
+        
+        local FlagsModule = Modules:FindFirstChild("Flags")
+        if FlagsModule then
+            local flags = require(FlagsModule)
+            if flags and flags.COMBAT_REMOTE_THREAD then
+                self.CombatFlags = flags.COMBAT_REMOTE_THREAD
+            end
+        end
+        
+        local CombatController = ReplicatedStorage:FindFirstChild("Controllers") and 
+                                ReplicatedStorage.Controllers:FindFirstChild("CombatController")
+        if CombatController then
+            local combatMod = require(CombatController)
+            if combatMod and combatMod.Attack then
+                self.ShootFunction = getupvalue(combatMod.Attack, 9)
+            end
+        end
+        
+        local playerScripts = LocalPlayer:WaitForChild("PlayerScripts")
+        local localScript = playerScripts:FindFirstChildOfClass("LocalScript")
+        if localScript and getsenv then
+            local env = getsenv(localScript)
+            if env and env._G and env._G.SendHitsToServer then
+                self.HitFunction = env._G.SendHitsToServer
+            end
         end
     end)
     
@@ -272,13 +244,14 @@ function FastAttack.new()
 end
 
 function FastAttack:IsEntityAlive(entity)
-    local humanoid = entity and entity:FindFirstChild("Humanoid")
+    local humanoid = entity and entity:FindFirstChildOfClass("Humanoid")
     return humanoid and humanoid.Health > 0
 end
 
 function FastAttack:CheckStun(Character, Humanoid, ToolTip)
     local Stun = Character:FindFirstChild("Stun")
     local Busy = Character:FindFirstChild("Busy")
+    
     if Humanoid.Sit and (ToolTip == "Sword" or ToolTip == "Melee" or ToolTip == "Blox Fruit") then
         return false
     elseif Stun and Stun.Value > 0 or Busy and Busy.Value then
@@ -293,9 +266,11 @@ function FastAttack:GetBladeHits(Character, Distance)
     Distance = Distance or Config.AttackDistance
     
     local function ProcessTargets(Folder, CanAttack)
+        if not Folder then return end
         for _, Enemy in ipairs(Folder:GetChildren()) do
             if Enemy ~= Character and self:IsEntityAlive(Enemy) then
-                local BasePart = Enemy:FindFirstChild(Config.HitboxLimbs[math.random(#Config.HitboxLimbs)]) or Enemy:FindFirstChild("HumanoidRootPart")
+                local limbName = Config.HitboxLimbs[math.random(#Config.HitboxLimbs)]
+                local BasePart = Enemy:FindFirstChild(limbName) or Enemy:FindFirstChild("HumanoidRootPart")
                 if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
                     if not self.EnemyRootPart then
                         self.EnemyRootPart = BasePart
@@ -307,8 +282,12 @@ function FastAttack:GetBladeHits(Character, Distance)
         end
     end
     
-    if Config.AttackMobs then ProcessTargets(Workspace.Enemies) end
-    if Config.AttackPlayers then ProcessTargets(Workspace.Characters, true) end
+    if Config.AttackMobs then
+        ProcessTargets(Workspace:FindFirstChild("Enemies"))
+    end
+    if Config.AttackPlayers then
+        ProcessTargets(Workspace:FindFirstChild("Characters"))
+    end
     
     return BladeHits
 end
@@ -346,29 +325,31 @@ function FastAttack:ShootInTarget(TargetPosition)
     if (tick() - self.ShootDebounce) < Cooldown then return end
     
     local ShootType = self.SpecialShoots[Equipped.Name] or "Normal"
-    if ShootType == "Position" or (ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent")) then
+    
+    pcall(function()
         Equipped:SetAttribute("LocalTotalShots", (Equipped:GetAttribute("LocalTotalShots") or 0) + 1)
-        GunValidator:FireServer(self:GetValidator2())
+        self.GunValidator:FireServer(self:GetValidator2())
         
-        if ShootType == "TAP" then
+        if ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent") then
             Equipped.RemoteEvent:FireServer("TAP", TargetPosition)
         else
-            ShootGunEvent:FireServer(TargetPosition)
+            self.ShootGunEvent:FireServer(TargetPosition)
         end
-        self.ShootDebounce = tick()
-    else
-        self.ShootDebounce = tick()
-    end
+    end)
+    
+    self.ShootDebounce = tick()
 end
 
 function FastAttack:GetValidator2()
-    local v1 = getupvalue(self.ShootFunction, 15)
-    local v2 = getupvalue(self.ShootFunction, 13)
-    local v3 = getupvalue(self.ShootFunction, 16)
-    local v4 = getupvalue(self.ShootFunction, 17)
-    local v5 = getupvalue(self.ShootFunction, 14)
-    local v6 = getupvalue(self.ShootFunction, 12)
-    local v7 = getupvalue(self.ShootFunction, 18)
+    if not self.ShootFunction then return 0, 0 end
+    
+    local v1 = getupvalue(self.ShootFunction, 15) or 0
+    local v2 = getupvalue(self.ShootFunction, 13) or 1
+    local v3 = getupvalue(self.ShootFunction, 16) or 1
+    local v4 = getupvalue(self.ShootFunction, 17) or 1
+    local v5 = getupvalue(self.ShootFunction, 14) or 0
+    local v6 = getupvalue(self.ShootFunction, 12) or 0
+    local v7 = getupvalue(self.ShootFunction, 18) or 0
     
     local v8 = v6 * v2
     local v9 = (v5 * v2 + v6 * v1) % v3
@@ -392,12 +373,12 @@ function FastAttack:UseNormalClick(Character, Humanoid, Cooldown)
     self.EnemyRootPart = nil
     local BladeHits = self:GetBladeHits(Character)
     
-    if self.EnemyRootPart then
-        RegisterAttack:FireServer(Cooldown)
+    if self.EnemyRootPart and self.RegisterAttack and self.RegisterHit then
+        self.RegisterAttack:FireServer(Cooldown)
         if self.CombatFlags and self.HitFunction then
             self.HitFunction(self.EnemyRootPart, BladeHits)
         else
-            RegisterHit:FireServer(self.EnemyRootPart, BladeHits)
+            self.RegisterHit:FireServer(self.EnemyRootPart, BladeHits)
         end
     end
 end
@@ -408,17 +389,20 @@ function FastAttack:UseFruitM1(Character, Equipped, Combo)
     if not Targets[1] then return end
 
     local Direction = (Targets[1][2].Position - Character:GetPivot().Position).Unit
-    Equipped.LeftClickRemote:FireServer(Direction, Combo)
+    if Equipped.LeftClickRemote then
+        Equipped.LeftClickRemote:FireServer(Direction, Combo)
+    end
 end
 
 function FastAttack:Attack()
     if not Config.AutoClickEnabled or (tick() - self.Debounce) < Config.AttackCooldown then return end
+    
     local Character = LocalPlayer.Character
     if not Character or not self:IsEntityAlive(Character) then return end
     
-    local Humanoid = Character.Humanoid
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
     local Equipped = Character:FindFirstChildOfClass("Tool")
-    if not Equipped then return end
+    if not Equipped or not Humanoid then return end
     
     local ToolTip = Equipped.ToolTip
     if not table.find({"Melee", "Blox Fruit", "Sword", "Gun"}, ToolTip) then return end
@@ -443,6 +427,7 @@ function FastAttack:Attack()
 end
 
 local AttackInstance = FastAttack.new()
+
 local function startFastAttack()
     if fastConn then return end
     fastConn = RunService.Stepped:Connect(function()
@@ -459,13 +444,25 @@ local function stopFastAttack()
     end
 end
 
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    infinitestam()
-end)
+local function setWalkWater(state)
+    WalkWaterEnabled = state
+    local waterPart = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("WaterBase-Plane")
+    if waterPart then
+        waterPart.Size = state and Vector3.new(1000, 110, 1000) or Vector3.new(1000, 80, 1000)
+    end
+end
 
-if LocalPlayer.Character then
-    infinitestam()
+local function removeLava()
+    for _, v in pairs(Workspace:GetDescendants()) do
+        if v.Name == "Lava" then
+            v:Destroy()
+        end
+    end
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v.Name == "Lava" then
+            v:Destroy()
+        end
+    end
 end
 
 function StuffsModule:SetFpsBoost(state)
@@ -481,19 +478,29 @@ function StuffsModule:SetFpsBoost(state)
 end
 
 function StuffsModule:SetINFEnergy(state)
-    infinitestam(state)
+    infiniteStam(state)
 end
 
 function StuffsModule:SetFog(state)
-    fog = state
+    Fog = state
+    if state then
+        Lighting.FogEnd = 100000
+        for _, v in pairs(Lighting:GetDescendants()) do
+            if v:IsA("Atmosphere") then
+                v:Destroy()
+            end
+        end
+    end
 end
 
 function StuffsModule:SetLava(state)
     Lava = state
+    if state then removeLava() end
 end
 
-function StuffsModule:SetRejoinServer(state)
-    game:GetService("TeleportService"):Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
+function StuffsModule:SetRejoinServer()
+    local TeleportService = game:GetService("TeleportService")
+    TeleportService:Teleport(game.PlaceId, LocalPlayer)
 end
 
 function StuffsModule:SetFastAttack(state)
@@ -506,12 +513,7 @@ function StuffsModule:SetFastAttack(state)
 end
 
 function StuffsModule:SetWalkWater(state)
-    WalkWaterEnabled = state
-    if WalkWaterEnabled then
-        waterPart.Size = Vector3.new(1000,110,1000)
-    else
-        waterPart.Size = Vector3.new(1000,80,1000)
-    end
+    setWalkWater(state)
 end
 
 function StuffsModule:SetPingsOrFps(state)
@@ -522,5 +524,12 @@ function StuffsModule:SetPingsOrFps(state)
         stopFPSLoop()
     end
 end
+
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if InfiniteEnergy then
+        infiniteStam(true)
+    end
+end)
 
 return StuffsModule
