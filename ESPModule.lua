@@ -1,605 +1,373 @@
-local ModernESP = {}
+local ESPModule = {}
 
--- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
 
-local LocalPlayer = Players.LocalPlayer
+-- State
+local V3Enabled = false
+local BunnyHopEnabled = false
+local DodgeEnabled = false
+local ESPEnabled = false
+local BusoEnabled = false
+local AntiAfkEnabled = false
 
--- Configuration
-local Config = {
-    Colors = {
-        Pirates = Color3.fromRGB(220, 20, 60),      -- Crimson Red
-        Marines = Color3.fromRGB(0, 0, 128),        -- Navy Blue
-        Ally = Color3.fromRGB(0, 255, 127),         -- Spring Green
-        Self = Color3.fromRGB(0, 255, 255),         -- Cyan
-        Neutral = Color3.fromRGB(255, 255, 255),    -- White
-        Background = Color3.fromRGB(15, 15, 25),    -- Dark background
-        HealthHigh = Color3.fromRGB(0, 255, 127),
-        HealthMid = Color3.fromRGB(255, 215, 0),
-        HealthLow = Color3.fromRGB(255, 69, 0)
-    },
-    
-    Fonts = {
-        Primary = Enum.Font.GothamBold,
-        Numeric = Enum.Font.RobotoMono
-    },
-    
-    Sizes = {
-        Name = 14,
-        Level = 12,
-        Distance = 11,
-        Health = 10
-    }
+local v3Loop = nil
+local dodgeLoop = nil
+local renderConnection = nil
+local espFolder = nil
+local ESPs = {}
+
+-- Colors
+local Colors = {
+    Pirates = Color3.fromRGB(220, 20, 60),
+    Marines = Color3.fromRGB(0, 0, 128),
+    Ally = Color3.fromRGB(0, 255, 127),
+    Neutral = Color3.fromRGB(255, 255, 255),
+    HP_Green = Color3.fromRGB(0, 255, 100),
+    HP_Yellow = Color3.fromRGB(255, 200, 0),
+    HP_Red = Color3.fromRGB(255, 50, 50)
 }
 
--- State Management
-local State = {
-    V3Enabled = false,
-    BunnyHopEnabled = false,
-    NoDodgeEnabled = false,
-    ESPEnabled = false,
-    BusoEnabled = false,
-    AntiAfkEnabled = false,
-    
-    V3Thread = nil,
-    DodgeThread = nil,
-    RenderConnection = nil,
-    
-    ESPInstances = {},
-    ESPFolder = nil,
-    HookInstalled = false
-}
-
--- Utility Functions
-local function CreateCorner(radius)
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, radius or 6)
-    return corner
+-- Utils
+local function getFolder()
+    if espFolder and espFolder.Parent then return espFolder end
+    espFolder = CoreGui:FindFirstChild("CleanESP") or Instance.new("Folder")
+    espFolder.Name = "CleanESP"
+    espFolder.Parent = CoreGui
+    return espFolder
 end
 
-local function CreateStroke(color, thickness)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = color or Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = thickness or 1
-    stroke.Transparency = 0.8
-    return stroke
-end
-
-local function CreateGradient(color1, color2, rotation)
-    local gradient = Instance.new("UIGradient")
-    gradient.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, color1),
-        ColorSequenceKeypoint.new(1, color2 or color1)
-    })
-    gradient.Rotation = rotation or 90
-    return gradient
-end
-
-local function LerpColor(colorA, colorB, alpha)
-    return Color3.new(
-        colorA.R + (colorB.R - colorA.R) * alpha,
-        colorA.G + (colorB.G - colorA.G) * alpha,
-        colorA.B + (colorB.B - colorA.B) * alpha
-    )
-end
-
-local function GetHealthColor(healthPercent)
-    if healthPercent > 0.6 then
-        return LerpColor(Config.Colors.HealthMid, Config.Colors.HealthHigh, (healthPercent - 0.6) / 0.4)
-    elseif healthPercent > 0.3 then
-        return LerpColor(Config.Colors.HealthLow, Config.Colors.HealthMid, (healthPercent - 0.3) / 0.3)
-    else
-        return Config.Colors.HealthLow
-    end
-end
-
--- ESP Container Management
-local function GetESPFolder()
-    if State.ESPFolder and State.ESPFolder.Parent then
-        return State.ESPFolder
-    end
-    
-    State.ESPFolder = CoreGui:FindFirstChild("ModernESP")
-    if not State.ESPFolder then
-        State.ESPFolder = Instance.new("Folder")
-        State.ESPFolder.Name = "ModernESP"
-        State.ESPFolder.Parent = CoreGui
-    end
-    
-    return State.ESPFolder
-end
-
-local function ClearESPFolder()
-    if State.ESPFolder then
-        pcall(function()
-            State.ESPFolder:ClearAllChildren()
-        end)
-    end
-    State.ESPInstances = {}
-end
-
--- Team & Relationship Logic
-local function IsAlly(targetPlayer)
-    if targetPlayer == LocalPlayer then return true end
-    
+local function isAlly(target)
     local success, result = pcall(function()
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if not playerGui then return false end
-        
-        local alliesFrame = playerGui:FindFirstChild("Main")
-            and playerGui.Main:FindFirstChild("Allies")
-            and playerGui.Main.Allies:FindFirstChild("Container")
-            and playerGui.Main.Allies.Container:FindFirstChild("Allies")
-            and playerGui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
-        
-        if not alliesFrame then return false end
-        
-        for _, descendant in ipairs(alliesFrame:GetDescendants()) do
-            if descendant:IsA("ImageButton") and descendant.Name == targetPlayer.Name then
-                return true
-            end
+        local gui = player:FindFirstChild("PlayerGui")
+        if not gui then return false end
+        local scroll = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Allies") and gui.Main.Allies:FindFirstChild("Container") and gui.Main.Allies.Container:FindFirstChild("Allies") and gui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
+        if not scroll then return false end
+        for _, v in pairs(scroll:GetDescendants()) do
+            if v:IsA("ImageButton") and v.Name == target.Name then return true end
         end
         return false
     end)
-    
     return success and result
 end
 
-local function GetRelationship(targetPlayer)
-    if targetPlayer == LocalPlayer then
-        return "Self", Config.Colors.Self
+local function getColor(target)
+    if target == player then return Colors.Ally end
+    local myTeam, theirTeam = player.Team, target.Team
+    if not myTeam or not theirTeam then return Colors.Neutral end
+    local myName, theirName = myTeam.Name, theirTeam.Name
+    
+    if myName == theirName then
+        if myName == "Pirates" then return isAlly(target) and Colors.Ally or Colors.Pirates
+        elseif myName == "Marines" then return Colors.Marines end
     end
-    
-    local localTeam = LocalPlayer.Team
-    local targetTeam = targetPlayer.Team
-    
-    if not localTeam or not targetTeam then
-        return "Neutral", Config.Colors.Neutral
+    if (myName == "Pirates" and theirName == "Marines") or (myName == "Marines" and theirName == "Pirates") then
+        return myName == "Pirates" and Colors.Marines or Colors.Pirates
     end
-    
-    local localTeamName = localTeam.Name
-    local targetTeamName = targetTeam.Name
-    
-    if localTeamName == targetTeamName then
-        if localTeamName == "Pirates" then
-            return IsAlly(targetPlayer) and "Ally" or "Enemy", 
-                   IsAlly(targetPlayer) and Config.Colors.Ally or Config.Colors.Pirates
-        elseif localTeamName == "Marines" then
-            return "Ally", Config.Colors.Marines
-        end
-    end
-    
-    if (localTeamName == "Pirates" and targetTeamName == "Marines") or
-       (localTeamName == "Marines" and targetTeamName == "Pirates") then
-        return "Enemy", localTeamName == "Pirates" and Config.Colors.Marines or Config.Colors.Pirates
-    end
-    
-    return "Neutral", Config.Colors.Neutral
+    return Colors.Neutral
 end
 
--- Modern ESP Creation
-local function CreateModernESP(targetPlayer)
-    if State.ESPInstances[targetPlayer] then return end
-    
-    local character = targetPlayer.Character
-    if not character then return end
-    
-    local head = character:FindFirstChild("Head")
+local function getHPColor(percent)
+    if percent > 0.6 then return Colors.HP_Green
+    elseif percent > 0.3 then return Colors.HP_Yellow
+    else return Colors.HP_Red end
+end
+
+-- ESP Creation
+local function createESP(target)
+    if ESPs[target] then return end
+    local char = target.Character
+    if not char then return end
+    local head = char:FindFirstChild("Head")
     if not head then return end
     
-    local folder = GetESPFolder()
-    
+    local folder = getFolder()
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = HttpService:GenerateGUID(false)
+    billboard.Name = target.Name
     billboard.Adornee = head
-    billboard.Size = UDim2.fromOffset(200, 70)
-    billboard.StudsOffset = Vector3.new(0, 2.8, 0)
+    billboard.Size = UDim2.fromOffset(180, 55)
+    billboard.StudsOffset = Vector3.new(0, 2.4, 0)
     billboard.AlwaysOnTop = true
-    billboard.MaxDistance = 10000
     billboard.Parent = folder
     
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "Container"
-    mainFrame.Size = UDim2.fromScale(1, 1)
-    mainFrame.BackgroundColor3 = Config.Colors.Background
-    mainFrame.BackgroundTransparency = 0.15
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Parent = billboard
-    
-    CreateCorner(8).Parent = mainFrame
-    CreateStroke(Color3.fromRGB(255, 255, 255), 1.5).Parent = mainFrame
-    
-    local accentBar = Instance.new("Frame")
-    accentBar.Name = "AccentBar"
-    accentBar.Size = UDim2.new(1, 0, 0, 3)
-    accentBar.Position = UDim2.new(0, 0, 0, 0)
-    accentBar.BorderSizePixel = 0
-    accentBar.Parent = mainFrame
-    
-    CreateCorner(2).Parent = accentBar
-    
-    local layout = Instance.new("UIListLayout")
-    layout.Padding = UDim.new(0, 2)
-    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    layout.VerticalAlignment = Enum.VerticalAlignment.Center
-    layout.Parent = mainFrame
-    
-    local padding = Instance.new("UIPadding")
-    padding.PaddingTop = UDim.new(0, 6)
-    padding.PaddingBottom = UDim.new(0, 4)
-    padding.Parent = mainFrame
-    
+    -- Name
     local nameLabel = Instance.new("TextLabel")
-    nameLabel.Name = "NameLabel"
-    nameLabel.Size = UDim2.new(1, -10, 0, 16)
+    nameLabel.Name = "Name"
+    nameLabel.Size = UDim2.new(1, 0, 0, 16)
     nameLabel.BackgroundTransparency = 1
-    nameLabel.Font = Config.Fonts.Primary
-    nameLabel.TextSize = Config.Sizes.Name
-    nameLabel.TextXAlignment = Enum.TextXAlignment.Center
-    nameLabel.TextYAlignment = Enum.TextYAlignment.Center
-    nameLabel.RichText = true
-    nameLabel.Parent = mainFrame
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.Text = target.DisplayName
+    nameLabel.Parent = billboard
     
-    local infoFrame = Instance.new("Frame")
-    infoFrame.Name = "InfoFrame"
-    infoFrame.Size = UDim2.new(1, -10, 0, 14)
-    infoFrame.BackgroundTransparency = 1
-    infoFrame.Parent = mainFrame
+    -- Level & Distance
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Name = "Info"
+    infoLabel.Size = UDim2.new(1, 0, 0, 12)
+    infoLabel.Position = UDim2.new(0, 0, 0, 16)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = 11
+    infoLabel.TextStrokeTransparency = 0.1
+    infoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    infoLabel.Text = "Lv. ??? | 0m"
+    infoLabel.Parent = billboard
     
-    local infoLayout = Instance.new("UIListLayout")
-    infoLayout.FillDirection = Enum.FillDirection.Horizontal
-    infoLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    infoLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    infoLayout.Padding = UDim.new(0, 8)
-    infoLayout.Parent = infoFrame
+    -- Health Bar Background
+    local hpBg = Instance.new("Frame")
+    hpBg.Name = "HP_BG"
+    hpBg.Size = UDim2.new(1, -20, 0, 4)
+    hpBg.Position = UDim2.new(0, 10, 0, 30)
+    hpBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    hpBg.BorderSizePixel = 0
+    hpBg.Parent = billboard
     
-    local levelBadge = Instance.new("Frame")
-    levelBadge.Name = "LevelBadge"
-    levelBadge.Size = UDim2.fromOffset(50, 14)
-    levelBadge.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-    levelBadge.BorderSizePixel = 0
-    levelBadge.Parent = infoFrame
+    local corner1 = Instance.new("UICorner")
+    corner1.CornerRadius = UDim.new(0, 2)
+    corner1.Parent = hpBg
     
-    CreateCorner(4).Parent = levelBadge
+    -- Health Bar Fill
+    local hpFill = Instance.new("Frame")
+    hpFill.Name = "HP_Fill"
+    hpFill.Size = UDim2.new(1, 0, 1, 0)
+    hpFill.BackgroundColor3 = Colors.HP_Green
+    hpFill.BorderSizePixel = 0
+    hpFill.Parent = hpBg
     
-    local levelLabel = Instance.new("TextLabel")
-    levelLabel.Name = "LevelText"
-    levelLabel.Size = UDim2.fromScale(1, 1)
-    levelLabel.BackgroundTransparency = 1
-    levelLabel.Font = Config.Fonts.Numeric
-    levelLabel.TextSize = Config.Sizes.Level
-    levelLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
-    levelLabel.Text = "Lv. ???"
-    levelLabel.Parent = levelBadge
+    local corner2 = Instance.new("UICorner")
+    corner2.CornerRadius = UDim.new(0, 2)
+    corner2.Parent = hpFill
     
-    local distanceLabel = Instance.new("TextLabel")
-    distanceLabel.Name = "DistanceLabel"
-    distanceLabel.Size = UDim2.fromOffset(60, 14)
-    distanceLabel.BackgroundTransparency = 1
-    distanceLabel.Font = Config.Fonts.Numeric
-    distanceLabel.TextSize = Config.Sizes.Distance
-    distanceLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-    distanceLabel.Text = "0m"
-    distanceLabel.Parent = infoFrame
+    -- HP Text
+    local hpText = Instance.new("TextLabel")
+    hpText.Name = "HP_Text"
+    hpText.Size = UDim2.new(1, 0, 0, 12)
+    hpText.Position = UDim2.new(0, 0, 0, 34)
+    hpText.BackgroundTransparency = 1
+    hpText.Font = Enum.Font.GothamBold
+    hpText.TextSize = 10
+    hpText.TextStrokeTransparency = 0
+    hpText.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    hpText.Text = "100%"
+    hpText.Parent = billboard
     
-    local healthContainer = Instance.new("Frame")
-    healthContainer.Name = "HealthContainer"
-    healthContainer.Size = UDim2.new(1, -20, 0, 6)
-    healthContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    healthContainer.BorderSizePixel = 0
-    healthContainer.Parent = mainFrame
-    
-    CreateCorner(3).Parent = healthContainer
-    
-    local healthBar = Instance.new("Frame")
-    healthBar.Name = "HealthBar"
-    healthBar.Size = UDim2.fromScale(1, 1)
-    healthBar.BackgroundColor3 = Config.Colors.HealthHigh
-    healthBar.BorderSizePixel = 0
-    healthBar.Parent = healthContainer
-    
-    CreateCorner(3).Parent = healthBar
-    
-    local healthGradient = CreateGradient(
-        Config.Colors.HealthHigh, 
-        Color3.fromRGB(100, 255, 150), 
-        0
-    )
-    healthGradient.Parent = healthBar
-    
-    local healthText = Instance.new("TextLabel")
-    healthText.Name = "HealthText"
-    healthText.Size = UDim2.fromScale(1, 1)
-    healthText.BackgroundTransparency = 1
-    healthText.Font = Config.Fonts.Numeric
-    healthText.TextSize = Config.Sizes.Health
-    healthText.TextColor3 = Color3.fromRGB(255, 255, 255)
-    healthText.TextStrokeTransparency = 0.5
-    healthText.Text = "100%"
-    healthText.Parent = healthContainer
-    
-    State.ESPInstances[targetPlayer] = {
+    ESPs[target] = {
         Billboard = billboard,
-        MainFrame = mainFrame,
-        AccentBar = accentBar,
-        NameLabel = nameLabel,
-        LevelLabel = levelLabel,
-        DistanceLabel = distanceLabel,
-        HealthBar = healthBar,
-        HealthText = healthText,
-        LastUpdate = tick()
+        Name = nameLabel,
+        Info = infoLabel,
+        HP_Fill = hpFill,
+        HP_Text = hpText,
+        LastHP = 1
     }
-    
-    mainFrame.Size = UDim2.fromScale(0, 1)
-    TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-        Size = UDim2.fromScale(1, 1)
-    }):Play()
 end
 
-local function RemoveESP(targetPlayer)
-    local espData = State.ESPInstances[targetPlayer]
-    if not espData then return end
-    
-    pcall(function()
-        local tween = TweenService:Create(espData.MainFrame, TweenInfo.new(0.2), {
-            Size = UDim2.fromScale(0, 1),
-            BackgroundTransparency = 1
-        })
-        tween:Play()
-        tween.Completed:Wait()
-        espData.Billboard:Destroy()
-    end)
-    
-    State.ESPInstances[targetPlayer] = nil
+local function removeESP(target)
+    if ESPs[target] then
+        pcall(function() ESPs[target].Billboard:Destroy() end)
+        ESPs[target] = nil
+    end
 end
 
--- Render Loop
-local function StartRenderLoop()
-    if State.RenderConnection then return end
+-- Render
+local function startRender()
+    if renderConnection then return end
     
-    State.RenderConnection = RunService.Heartbeat:Connect(function()
-        if not State.ESPEnabled then
-            for _, espData in pairs(State.ESPInstances) do
-                if espData and espData.Billboard then
-                    espData.Billboard.Enabled = false
-                end
+    renderConnection = RunService.Heartbeat:Connect(function()
+        if not ESPEnabled then
+            for _, v in pairs(ESPs) do
+                if v.Billboard then v.Billboard.Enabled = false end
             end
             return
         end
         
-        local localCharacter = LocalPlayer.Character
-        local localHRP = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+        local myChar = player.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         
-        for _, targetPlayer in ipairs(Players:GetPlayers()) do
-            if targetPlayer == LocalPlayer then continue end
+        for _, target in pairs(Players:GetPlayers()) do
+            if target == player then continue end
             
-            if not State.ESPInstances[targetPlayer] then
-                CreateModernESP(targetPlayer)
-            end
+            if not ESPs[target] then createESP(target) end
+            local esp = ESPs[target]
+            if not esp then continue end
             
-            local espData = State.ESPInstances[targetPlayer]
-            if not espData or not espData.Billboard then continue end
+            local char = target.Character
+            local head = char and char:FindFirstChild("Head")
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
             
-            local character = targetPlayer.Character
-            local head = character and character:FindFirstChild("Head")
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            
-            if not (character and head and hrp and humanoid and localHRP) then
-                espData.Billboard.Enabled = false
-                continue
-            end
-            
-            espData.Billboard.Enabled = true
-            espData.Billboard.Adornee = head
-            
-            local relation, baseColor = GetRelationship(targetPlayer)
-            espData.AccentBar.BackgroundColor3 = baseColor
-            
-            local distance = (localHRP.Position - hrp.Position).Magnitude
-            local healthPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-            local healthColor = GetHealthColor(healthPercent)
-            
-            local nameText = string.format(
-                '<font color="#%02X%02X%02X">⬤</font> %s',
-                math.floor(baseColor.R * 255),
-                math.floor(baseColor.G * 255),
-                math.floor(baseColor.B * 255),
-                targetPlayer.DisplayName
-            )
-            espData.NameLabel.Text = nameText
-            
-            local success, level = pcall(function()
-                local data = targetPlayer:FindFirstChild("Data")
-                local levelValue = data and data:FindFirstChild("Level")
-                return levelValue and levelValue.Value or "???"
-            end)
-            espData.LevelLabel.Text = string.format("Lv. %s", success and level or "???")
-            
-            espData.DistanceLabel.Text = string.format("%dm", math.floor(distance))
-            espData.DistanceLabel.TextColor3 = distance < 50 and Color3.fromRGB(255, 100, 100) or 
-                                               distance < 150 and Color3.fromRGB(255, 255, 100) or 
-                                               Color3.fromRGB(100, 255, 100)
-            
-            local targetHealthSize = UDim2.fromScale(healthPercent, 1)
-            espData.HealthBar.Size = targetHealthSize
-            espData.HealthBar.BackgroundColor3 = healthColor
-            espData.HealthText.Text = string.format("%d%%", math.floor(healthPercent * 100))
-            
-            espData.LastUpdate = tick()
-        end
-        
-        for player, espData in pairs(State.ESPInstances) do
-            if not player.Parent or (tick() - espData.LastUpdate > 5) then
-                RemoveESP(player)
+            if char and head and hrp and humanoid and myHRP then
+                esp.Billboard.Enabled = true
+                esp.Billboard.Adornee = head
+                
+                local color = getColor(target)
+                esp.Name.TextColor3 = color
+                
+                local dist = math.floor((myHRP.Position - hrp.Position).Magnitude)
+                local hpPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+                local hp = math.floor(hpPercent * 100)
+                
+                local level = "???"
+                pcall(function()
+                    local data = target:FindFirstChild("Data")
+                    local lv = data and data:FindFirstChild("Level")
+                    if lv then level = tostring(lv.Value) end
+                end)
+                
+                esp.Info.Text = string.format("Lv. %s | %dm", level, dist)
+                
+                -- Animated Health Bar
+                local targetSize = UDim2.new(hpPercent, 0, 1, 0)
+                esp.HP_Fill:TweenSize(targetSize, Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.15, true)
+                esp.HP_Fill.BackgroundColor3 = getHPColor(hpPercent)
+                esp.HP_Text.Text = hp .. "%"
+                esp.HP_Text.TextColor3 = getHPColor(hpPercent)
+                
+                esp.LastHP = hpPercent
+            else
+                esp.Billboard.Enabled = false
             end
         end
     end)
 end
 
-local function StopRenderLoop()
-    if State.RenderConnection then
-        State.RenderConnection:Disconnect()
-        State.RenderConnection = nil
+local function stopRender()
+    if renderConnection then
+        renderConnection:Disconnect()
+        renderConnection = nil
     end
 end
 
--- Feature Loops
-local function StartV3Loop()
-    if State.V3Thread then return end
-    
-    State.V3Enabled = true
-    State.V3Thread = task.spawn(function()
-        while State.V3Enabled do
+-- Features
+local function startV3()
+    if v3Loop then return end
+    v3Loop = task.spawn(function()
+        while V3Enabled do
             pcall(function()
-                local commE = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommE")
-                commE:FireServer("ActivateAbility")
+                ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
             end)
             task.wait(31)
         end
-        State.V3Thread = nil
+        v3Loop = nil
     end)
 end
 
-local function StopV3Loop()
-    State.V3Enabled = false
-    State.V3Thread = nil
+local function stopV3()
+    V3Enabled = false
 end
 
-local function StartNoDodgeLoop()
-    if State.DodgeThread then return end
-    
-    State.NoDodgeEnabled = true
-    State.DodgeThread = task.spawn(function()
-        while State.NoDodgeEnabled do
+local function startDodge()
+    if dodgeLoop then return end
+    dodgeLoop = task.spawn(function()
+        while DodgeEnabled do
             task.wait()
             pcall(function()
-                for _, func in next, getgc() do
-                    if typeof(func) ~= "function" then continue end
-                    
-                    local char = LocalPlayer.Character
-                    local dodge = char and char:FindFirstChild("Dodge")
-                    
-                    if dodge and getfenv(func).script == dodge then
-                        for idx, upval in next, getupvalues(func) do
-                            if tostring(upval) == "0.4" then
-                                setupvalue(func, idx, 0)
+                for _, v in next, getgc() do
+                    if typeof(v) == "function" then
+                        local char = player.Character
+                        local dodge = char and char:FindFirstChild("Dodge")
+                        if dodge and getfenv(v).script == dodge then
+                            for i, upv in next, getupvalues(v) do
+                                if tostring(upv) == "0.4" then
+                                    setupvalue(v, i, 0)
+                                end
                             end
                         end
                     end
                 end
             end)
         end
-        State.DodgeThread = nil
+        dodgeLoop = nil
     end)
 end
 
-local function StopNoDodgeLoop()
-    State.NoDodgeEnabled = false
-    State.DodgeThread = nil
+local function stopDodge()
+    DodgeEnabled = false
 end
 
--- Anti-AFK
-local function SetupAntiAfk()
-    if not State.AntiAfkEnabled then return end
-    
-    LocalPlayer.Idled:Connect(function()
-        if not State.AntiAfkEnabled then return end
-        pcall(function()
-            local VirtualInputManager = game:GetService("VirtualInputManager")
-            local viewport = workspace.CurrentCamera.ViewportSize
-            local x, y = viewport.X / 2, viewport.Y / 2
-            
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-        end)
-    end)
-end
-
--- Hook Installation
-local function InstallHooks()
-    if State.HookInstalled then return end
-    State.HookInstalled = true
-    
+-- Hook
+if not getgenv().ESPHooked then
+    getgenv().ESPHooked = true
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         local args = {...}
-        
         if method == "FireServer" or method == "InvokeServer" then
             if type(args[1]) == "string" and args[1]:upper() == "DODGE" then
-                if State.BunnyHopEnabled then
-                    local char = LocalPlayer.Character
-                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if BunnyHopEnabled then
+                    local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
                     if hum then
                         task.defer(function()
-                            pcall(function()
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            end)
+                            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
                         end)
                     end
                 end
             end
         end
-        
         return oldNamecall(self, ...)
     end)
 end
 
--- Public API
-function ModernESP:SetV3(state)
-    State.V3Enabled = state
-    if state then StartV3Loop() else StopV3Loop() end
+-- Anti AFK
+local function setupAntiAfk()
+    player.Idled:Connect(function()
+        if not AntiAfkEnabled then return end
+        pcall(function()
+            local vim = game:GetService("VirtualInputManager")
+            local x = workspace.CurrentCamera.ViewportSize.X / 2
+            local y = workspace.CurrentCamera.ViewportSize.Y / 2
+            vim:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.05)
+            vim:SendMouseButtonEvent(x, y, 0, false, game, 1)
+        end)
+    end)
 end
 
-function ModernESP:SetBunnyhop(state)
-    State.BunnyHopEnabled = state
-    InstallHooks()
+-- API
+function ESPModule:SetV3(state)
+    V3Enabled = state
+    if state then startV3() else stopV3() end
 end
 
-function ModernESP:SetNoDodgeCD(state)
-    State.NoDodgeEnabled = state
-    if state then StartNoDodgeLoop() else StopNoDodgeLoop() end
+function ESPModule:SetBunnyhop(state)
+    BunnyHopEnabled = state
 end
 
-function ModernESP:SetAntiAfk(state)
-    State.AntiAfkEnabled = state
-    if state then SetupAntiAfk() end
+function ESPModule:SetNoDodgeCD(state)
+    DodgeEnabled = state
+    if state then startDodge() else stopDodge() end
 end
 
-function ModernESP:SetBuso(state)
-    State.BusoEnabled = state
+function ESPModule:SetAntiAfk(state)
+    AntiAfkEnabled = state
+    if state then setupAntiAfk() end
+end
+
+function ESPModule:SetBuso(state)
+    BusoEnabled = state
     if state then
         pcall(function()
-            local commF = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommF_")
-            if not LocalPlayer.Character:FindFirstChild("HasBuso") then
-                commF:InvokeServer("Buso")
+            if not player.Character:FindFirstChild("HasBuso") then
+                ReplicatedStorage.Remotes.CommF_:InvokeServer("Buso")
             end
         end)
     end
 end
 
-function ModernESP:SetESP(state)
-    State.ESPEnabled = state
-    if state then
-        StartRenderLoop()
-    else
-        StopRenderLoop()
-        ClearESPFolder()
-    end
+function ESPModule:SetESP(state)
+    ESPEnabled = state
+    if state then startRender() else stopRender() end
 end
 
 -- Cleanup
 Players.PlayerRemoving:Connect(function(plr)
-    RemoveESP(plr)
+    removeESP(plr)
 end)
 
-InstallHooks()
-
-return ModernESP
+return ESPModule
