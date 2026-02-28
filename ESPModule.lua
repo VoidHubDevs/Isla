@@ -8,14 +8,12 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
 -- State
-local V3Enabled = false
 local BunnyHopEnabled = false
 local DodgeEnabled = false
 local ESPEnabled = false
 local BusoEnabled = false
 local AntiAfkEnabled = false
 
-local v3Loop = nil
 local dodgeLoop = nil
 local renderConnection = nil
 local espFolder = nil
@@ -245,23 +243,6 @@ local function stopRender()
 end
 
 -- Features
-local function startV3()
-    if v3Loop then return end
-    v3Loop = task.spawn(function()
-        while V3Enabled do
-            pcall(function()
-                ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
-            end)
-            task.wait(31)
-        end
-        v3Loop = nil
-    end)
-end
-
-local function stopV3()
-    V3Enabled = false
-end
-
 local function startDodge()
     if dodgeLoop then return end
     dodgeLoop = task.spawn(function()
@@ -330,11 +311,6 @@ local function setupAntiAfk()
 end
 
 -- API
-function ESPModule:SetV3(state)
-    V3Enabled = state
-    if state then startV3() else stopV3() end
-end
-
 function ESPModule:SetBunnyhop(state)
     BunnyHopEnabled = state
 end
