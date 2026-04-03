@@ -1,51 +1,58 @@
-local AimlockModule = {}
+--[[
+    Aimbot Module v2.0 - Optimized
+    Smooth aiming, efficient targeting
+--]]
 
+local AimbotModule = {}
+
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
-local AimlockPlayerEnabled, AimlockNpcEnabled, PredictionEnabled = false, false, false
-local PredictionAmount = 0.1
-local currentTarget = nil
-local currentHighlight = nil
-local cachedEnemy, cachedBoss = nil, nil
+-- State
+local AimlockPlayer = false
+local AimlockNPC = false
+local PredictionEnabled = false
+local PredictionAmount = 0.135
+local MaxRange = 500
 
-local renderConnection = nil
-local dmgConnection = nil
-local characterConnections = {}
-local touchConnections = {}
+-- Runtime Data
+local RenderConnection = nil
+local CurrentHighlight = nil
+local CachedEnemy = nil
+local CachedNPC = nil
+local LastUpdate = 0
+local UpdateInterval = 0.1
 
-local currentTool = nil
-local vActive, sharkZActive, cursedZActive = false, false, false
-local tiltEnabled = false
-local rightTouches = {}
-local tiltConn, preTiltCFrame = nil, nil
-
-local function clearConnections()
-    for _, conn in ipairs(characterConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    characterConnections = {}
+-- Utility
+local function SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    return success and result or nil
 end
 
-local function safeDisconnect(conn)
-    if conn then
-        pcall(function() conn:Disconnect() end)
-    end
-    return nil
+local function GetHRP(char)
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
 
-local function isAllyWithMe(targetPlayer)
-    if not targetPlayer then return false end
-    
-    local success, result = pcall(function()
+local function GetHumanoid(char)
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function IsAlive(char)
+    local hum = GetHumanoid(char)
+    return hum and hum.Health > 0
+end
+
+-- Ally Check
+local function IsAlly(targetPlayer)
+    return SafeCall(function()
         local myGui = player:FindFirstChild("PlayerGui")
         if not myGui then return false end
-
+        
         local main = myGui:FindFirstChild("Main")
         if not main then return false end
         
@@ -58,93 +65,86 @@ local function isAllyWithMe(targetPlayer)
         local alliesFolder = container:FindFirstChild("Allies")
         if not alliesFolder then return false end
         
-        local scrolling = alliesFolder:FindFirstChild("ScrollingFrame")
-        if not scrolling then return false end
-
-        for _, frame in pairs(scrolling:GetDescendants()) do
+        local scroll = alliesFolder:FindFirstChild("ScrollingFrame")
+        if not scroll then return false end
+        
+        for _, frame in pairs(scroll:GetDescendants()) do
             if frame:IsA("ImageButton") and frame.Name == targetPlayer.Name then
                 return true
             end
         end
         return false
-    end)
-    
-    return success and result
+    end) or false
 end
 
-local function isEnemy(targetPlayer)
+-- Enemy Check
+local function IsEnemy(targetPlayer)
     if not targetPlayer or targetPlayer == player then return false end
-
+    
     local myTeam = player.Team
     local targetTeam = targetPlayer.Team
-
+    
     if not myTeam or not targetTeam then return true end
     
-    if myTeam.Name == "Pirates" and targetTeam.Name == "Marines" then return true end
-    if myTeam.Name == "Marines" and targetTeam.Name == "Pirates" then return true end
-    if myTeam.Name == "Pirates" and targetTeam.Name == "Pirates" then
-        return not isAllyWithMe(targetPlayer)
+    local myName, theirName = myTeam.Name, targetTeam.Name
+    
+    if myName == "Pirates" and theirName == "Marines" then return true end
+    if myName == "Marines" and theirName == "Pirates" then return true end
+    if myName == "Pirates" and theirName == "Pirates" then
+        return not IsAlly(targetPlayer)
     end
-    if myTeam.Name == "Marines" and targetTeam.Name == "Marines" then return false end
+    if myName == "Marines" and theirName == "Marines" then return false end
     
     return true
 end
 
-local function getHRP(char)
-    return char and char:FindFirstChild("HumanoidRootPart")
-end
-
-local function getHumanoid(char)
-    return char and char:FindFirstChildOfClass("Humanoid")
-end
-
-local function getNearestEnemy(maxDistance)
-    local char = player.Character
-    local hrp = getHRP(char)
-    if not hrp then return nil end
-
-    local nearest, shortest = nil, maxDistance or 100
-
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= player and isEnemy(p) then
-            local pChar = p.Character
-            local pHRP = getHRP(pChar)
-            local hum = getHumanoid(pChar)
+-- Get Nearest Enemy
+local function GetNearestEnemy()
+    local myChar = player.Character
+    local myHRP = GetHRP(myChar)
+    if not myHRP then return nil end
+    
+    local nearest, shortest = nil, MaxRange
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and IsEnemy(plr) then
+            local char = plr.Character
+            local hrp = GetHRP(char)
             
-            if pHRP and hum and hum.Health > 0 then
-                local dist = (pHRP.Position - hrp.Position).Magnitude
+            if hrp and IsAlive(char) then
+                local dist = (hrp.Position - myHRP.Position).Magnitude
                 if dist < shortest then
                     shortest = dist
-                    nearest = pHRP
+                    nearest = hrp
                 end
             end
         end
     end
-
+    
     return nearest
 end
 
-local function getNearestBoss(maxDistance)
-    local char = player.Character
-    local hrp = getHRP(char)
-    if not hrp then return nil end
-
-    local nearest, shortest = nil, maxDistance or 500
-    local bossFolder = Workspace:FindFirstChild("Enemies")
+-- Get Nearest NPC
+local function GetNearestNPC()
+    local myChar = player.Character
+    local myHRP = GetHRP(myChar)
+    if not myHRP then return nil end
     
-    if not bossFolder then return nil end
-
-    for _, boss in pairs(bossFolder:GetChildren()) do
-        if not boss:IsA("Model") then continue end
-        
-        local bossHRP = getHRP(boss)
-        local hum = getHumanoid(boss)
-        
-        if bossHRP and hum and hum.Health > 0 then
-            local dist = (bossHRP.Position - hrp.Position).Magnitude
-            if dist < shortest then
-                shortest = dist
-                nearest = bossHRP
+    local enemiesFolder = Workspace:FindFirstChild("Enemies")
+    if not enemiesFolder then return nil end
+    
+    local nearest, shortest = nil, MaxRange
+    
+    for _, npc in pairs(enemiesFolder:GetChildren()) do
+        if npc:IsA("Model") then
+            local hrp = GetHRP(npc)
+            
+            if hrp and IsAlive(npc) then
+                local dist = (hrp.Position - myHRP.Position).Magnitude
+                if dist < shortest then
+                    shortest = dist
+                    nearest = hrp
+                end
             end
         end
     end
@@ -152,28 +152,22 @@ local function getNearestBoss(maxDistance)
     return nearest
 end
 
-local function clearHighlight()
-    if currentHighlight then
-        pcall(function() currentHighlight:Destroy() end)
-        currentHighlight = nil
+-- Highlight System
+local function ClearHighlight()
+    if CurrentHighlight then
+        SafeCall(function() CurrentHighlight:Destroy() end)
+        CurrentHighlight = nil
     end
 end
 
-local function setHighlight(targetModel)
-    clearHighlight()
+local function SetHighlight(targetModel)
+    ClearHighlight()
     
-    if not targetModel then
-        currentTarget = nil
+    if not targetModel or not IsAlive(targetModel) then
         return
     end
-
-    local hum = getHumanoid(targetModel)
-    if not hum or hum.Health <= 0 then
-        currentTarget = nil
-        return
-    end
-
-    local success = pcall(function()
+    
+    SafeCall(function()
         local highlight = Instance.new("Highlight")
         highlight.FillColor = Color3.fromRGB(255, 255, 0)
         highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
@@ -181,300 +175,136 @@ local function setHighlight(targetModel)
         highlight.OutlineTransparency = 0
         highlight.Adornee = targetModel
         highlight.Parent = targetModel
-        currentHighlight = highlight
+        CurrentHighlight = highlight
     end)
+end
+
+-- Update Targets (throttled)
+local function UpdateTargets()
+    local now = tick()
+    if now - LastUpdate < UpdateInterval then return end
+    LastUpdate = now
     
-    if success then
-        currentTarget = targetModel
-        
-        local diedConn = hum.Died:Connect(function()
-            clearHighlight()
-            currentTarget = nil
-        end)
-        table.insert(characterConnections, diedConn)
+    if AimlockPlayer then
+        if not CachedEnemy or not CachedEnemy.Parent or not IsAlive(CachedEnemy.Parent) then
+            CachedEnemy = GetNearestEnemy()
+        end
+    else
+        CachedEnemy = nil
+    end
+    
+    if AimlockNPC then
+        if not CachedNPC or not CachedNPC.Parent or not IsAlive(CachedNPC.Parent) then
+            CachedNPC = GetNearestNPC()
+        end
+    else
+        CachedNPC = nil
+    end
+    
+    -- Update highlight
+    local target = CachedEnemy and CachedEnemy.Parent or CachedNPC and CachedNPC.Parent
+    if target then
+        SetHighlight(target)
+    else
+        ClearHighlight()
     end
 end
 
-local function stopTiltSmooth()
-    tiltConn = safeDisconnect(tiltConn)
+-- Aim Function
+local function AimAt(targetHRP)
+    if not targetHRP then return end
     
-    if not preTiltCFrame then return end
+    local camPos = camera.CFrame.Position
+    local targetPos = targetHRP.Position
     
-    local startCF = camera.CFrame
-    local endCF = preTiltCFrame
-    preTiltCFrame = nil
-
-    local alpha = 0
-    local restoreConn
-    restoreConn = RunService.RenderStepped:Connect(function(dt)
-        alpha = math.min(alpha + dt * 5, 1)
-        camera.CFrame = startCF:Lerp(endCF, alpha)
-        if alpha >= 1 then
-            restoreConn:Disconnect()
+    -- Apply prediction
+    if PredictionEnabled then
+        local velocity = targetHRP.Velocity
+        if velocity.Magnitude > 3 then
+            targetPos = targetPos + (velocity * PredictionAmount)
         end
-    end)
+    end
+    
+    -- Add slight downward tilt based on distance
+    local dist = (targetPos - camPos).Magnitude
+    local yOffset = math.clamp(dist / 40, 0, 0.06)
+    
+    local lookVector = (targetPos - camPos).Unit
+    local tiltedLook = Vector3.new(lookVector.X, lookVector.Y - yOffset, lookVector.Z).Unit
+    
+    camera.CFrame = CFrame.new(camPos, camPos + tiltedLook)
 end
 
-local function startTilt()
-    tiltConn = safeDisconnect(tiltConn)
+-- Render Loop
+local function StartRender()
+    if RenderConnection then return end
     
-    preTiltCFrame = preTiltCFrame or camera.CFrame
-    local char = player.Character
-    local hrp = getHRP(char)
-    local hum = getHumanoid(char)
-    
-    if not hrp or not hum then return end
-
-    local startCF = camera.CFrame
-    local camPos = startCF.Position
-
-    local tiltOffset = (hum.FloorMaterial ~= Enum.Material.Air) and Vector3.new(0, 6, 0) or Vector3.new(0, 40, 0)
-    local downLook = hrp.Position - tiltOffset
-    local targetCF = CFrame.new(camPos, downLook)
-
-    local alpha = 0
-    tiltConn = RunService.RenderStepped:Connect(function(dt)
-        if not (tiltEnabled and next(rightTouches) and hrp.Parent) then
-            stopTiltSmooth()
+    RenderConnection = RunService.RenderStepped:Connect(function()
+        if not AimlockPlayer and not AimlockNPC then
+            RenderConnection:Disconnect()
+            RenderConnection = nil
+            ClearHighlight()
             return
         end
-
-        if alpha < 1 then
-            alpha = math.min(alpha + dt * 2, 1)
-            camera.CFrame = startCF:Lerp(targetCF, alpha)
-        else
-            camera.CFrame = targetCF
-        end
-    end)
-end
-
-local function startRenderLoop()
-    if renderConnection then return end
-
-    renderConnection = RunService.RenderStepped:Connect(function()
-        if not AimlockPlayerEnabled and not AimlockNpcEnabled then
-            renderConnection = safeDisconnect(renderConnection)
-            return
-        end
-
-        local char = player.Character
-        local hrp = getHRP(char)
-        if not hrp then return end
-
-        if AimlockPlayerEnabled then
-            if not cachedEnemy or not cachedEnemy.Parent or not getHumanoid(cachedEnemy.Parent) or getHumanoid(cachedEnemy.Parent).Health <= 0 then
-                cachedEnemy = getNearestEnemy(500)
-            end
-        else
-            cachedEnemy = nil
-        end
-
-        if AimlockNpcEnabled then
-            if not cachedBoss or not cachedBoss.Parent or not getHumanoid(cachedBoss.Parent) or getHumanoid(cachedBoss.Parent).Health <= 0 then
-                cachedBoss = getNearestBoss(500)
-            end
-        else
-            cachedBoss = nil
-        end
-
-        if not tiltEnabled then
-            local targetHRP = cachedEnemy or cachedBoss
-            if targetHRP then
-                local camCFrame = camera.CFrame
-                local camPos = camCFrame.Position
-                local dist = (targetHRP.Position - camPos).Magnitude
-                
-                local predictedPos = targetHRP.Position
-                if PredictionEnabled then
-                    local velocity = targetHRP.Velocity
-                    if velocity.Magnitude > 3 then
-                        predictedPos = predictedPos + velocity * PredictionAmount
-                    end
-                end
-
-                local yOffset = math.clamp(dist / 40, 0, 0.06)
-                local lookVector = (predictedPos - camPos).Unit
-                local tiltedLook = Vector3.new(lookVector.X, lookVector.Y - yOffset, lookVector.Z).Unit
-                camera.CFrame = CFrame.new(camPos, camPos + tiltedLook)
-            end
-        end
-
-        if AimlockPlayerEnabled and cachedEnemy and currentTarget ~= cachedEnemy.Parent then
-            setHighlight(cachedEnemy.Parent)
-        elseif AimlockNpcEnabled and cachedBoss and currentTarget ~= cachedBoss.Parent then
-            setHighlight(cachedBoss.Parent)
-        elseif not cachedEnemy and not cachedBoss then
-            clearHighlight()
-            currentTarget = nil
-        end
-    end)
-end
-
-local function hookTool(tool)
-    if not tool then return end
-    currentTool = tool
-    
-    local ancConn = tool.AncestryChanged:Connect(function(_, parent)
-        if not parent then
-            currentTool = nil
-            vActive, sharkZActive, cursedZActive = false, false, false
-            tiltEnabled = false
-            stopTiltSmooth()
-        end
-    end)
-    table.insert(characterConnections, ancConn)
-end
-
-local function onCharacterAdded(newChar)
-    clearConnections()
-    
-    local hrp = newChar:WaitForChild("HumanoidRootPart", 5)
-    local hum = newChar:WaitForChild("Humanoid", 5)
-    
-    if not hrp or not hum then return end
-
-    table.insert(characterConnections, newChar.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then hookTool(child) end
-    end))
-    
-    table.insert(characterConnections, newChar.ChildRemoved:Connect(function(child)
-        if child == currentTool then
-            currentTool = nil
-            vActive, sharkZActive, cursedZActive = false, false, false
-            tiltEnabled = false
-            stopTiltSmooth()
-        end
-    end))
-    
-    for _, child in pairs(newChar:GetChildren()) do
-        if child:IsA("Tool") then hookTool(child) end
-    end
-    
-    tiltEnabled = false
-    rightTouches = {}
-end
-
-player.CharacterAdded:Connect(onCharacterAdded)
-if player.Character then onCharacterAdded(player.Character) end
-
-table.insert(touchConnections, UserInputService.TouchStarted:Connect(function(touch)
-    camera = Workspace.CurrentCamera
-    if not camera or not touch.Position then return end
-
-    if touch.Position.X > camera.ViewportSize.X / 2 then
-        rightTouches[touch] = true
-        if tiltEnabled and currentTool then
-            if (currentTool.Name == "Dough-Dough" and vActive) or
-               (currentTool.Name == "Shark Anchor" and sharkZActive) or
-               (currentTool.Name == "Cursed Dual Katana" and cursedZActive) then
-                startTilt()
-            end
-        end
-    end
-end))
-
-table.insert(touchConnections, UserInputService.TouchEnded:Connect(function(touch)
-    if rightTouches[touch] then
-        rightTouches[touch] = nil
-        if not next(rightTouches) then
-            stopTiltSmooth()
-            tiltEnabled = false
-            vActive, sharkZActive, cursedZActive = false, false, false
-        end
-    end
-end))
-
-if not getgenv().AimlockHooked then
-    getgenv().AimlockHooked = true
-    
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        local args = {...}
-
-        if method == "InvokeServer" or method == "FireServer" then
-            local a1 = args[1]
-            if typeof(a1) ~= "string" then return oldNamecall(self, ...) end
-            
-            local upperA1 = a1:upper()
-            
-            if upperA1 == "V" and currentTool and currentTool.Name == "Dough-Dough" then
-                vActive = true
-                task.delay(2, function()
-                    vActive = false
-                    if tiltEnabled and next(rightTouches) then
-                        tiltEnabled = false
-                        stopTiltSmooth()
-                        rightTouches = {}
-                    end
-                end)
-            elseif upperA1 == "Z" then
-                if currentTool and currentTool.Name == "Shark Anchor" then
-                    sharkZActive = true
-                    task.delay(2, function()
-                        sharkZActive = false
-                        if tiltEnabled and next(rightTouches) then
-                            tiltEnabled = false
-                            stopTiltSmooth()
-                            rightTouches = {}
-                        end
-                    end)
-                elseif currentTool and currentTool.Name == "Cursed Dual Katana" then
-                    cursedZActive = true
-                    task.delay(2, function()
-                        cursedZActive = false
-                        if tiltEnabled and next(rightTouches) then
-                            tiltEnabled = false
-                            stopTiltSmooth()
-                            rightTouches = {}
-                        end
-                    end)
-                end
-            end
-        end
         
-        return oldNamecall(self, ...)
+        UpdateTargets()
+        
+        local target = CachedEnemy or CachedNPC
+        if target then
+            AimAt(target)
+        end
     end)
 end
 
-function AimlockModule:SetPlayerAimlock(state)
-    AimlockPlayerEnabled = state
+-- API
+function AimbotModule:SetPlayerAimlock(state)
+    AimlockPlayer = state
     
-    if not state then
-        clearHighlight()
-        cachedEnemy = nil
-    else
-        cachedEnemy = getNearestEnemy(500)
-        if cachedEnemy then
-            setHighlight(cachedEnemy.Parent)
+    if state then
+        CachedEnemy = GetNearestEnemy()
+        if CachedEnemy then
+            SetHighlight(CachedEnemy.Parent)
         end
-        startRenderLoop()
+        StartRender()
+    else
+        CachedEnemy = nil
+        if not AimlockNPC then
+            ClearHighlight()
+        end
     end
 end
 
-function AimlockModule:SetNpcAimlock(state)
-    AimlockNpcEnabled = state
+function AimbotModule:SetNpcAimlock(state)
+    AimlockNPC = state
     
-    if not state then
-        clearHighlight()
-        cachedBoss = nil
-    else
-        cachedBoss = getNearestBoss(500)
-        if cachedBoss then
-            setHighlight(cachedBoss.Parent)
+    if state then
+        CachedNPC = GetNearestNPC()
+        if CachedNPC then
+            SetHighlight(CachedNPC.Parent)
         end
-        startRenderLoop()
+        StartRender()
+    else
+        CachedNPC = nil
+        if not AimlockPlayer then
+            ClearHighlight()
+        end
     end
 end
 
-function AimlockModule:SetPrediction(state)
+function AimbotModule:SetPrediction(state)
     PredictionEnabled = state
 end
 
-function AimlockModule:SetPredictionTime(num)
+function AimbotModule:SetPredictionTime(num)
     if type(num) == "number" then
         PredictionAmount = num
     end
 end
 
-return AimlockModule
+function AimbotModule:SetMaxRange(num)
+    if type(num) == "number" then
+        MaxRange = num
+    end
+end
+
+return AimbotModule
