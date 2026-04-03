@@ -1,100 +1,144 @@
+--[[
+    ESP Module v2.0 - Optimized
+    Clean rendering, minimal lag, efficient updates
+--]]
+
 local ESPModule = {}
 
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
 -- State
+local ESPEnabled = false
 local V3Enabled = false
 local BunnyHopEnabled = false
 local DodgeEnabled = false
-local ESPEnabled = false
 local BusoEnabled = false
 local AntiAfkEnabled = false
 
-local v3Loop = nil
-local dodgeLoop = nil
-local renderConnection = nil
-local espFolder = nil
-local ESPs = {}
+-- ESP Storage
+local ESPFolder = nil
+local ESPObjects = {}
+local RenderConnection = nil
+local V3Connection = nil
+local DodgeConnection = nil
 
 -- Colors
 local Colors = {
     Pirates = Color3.fromRGB(220, 20, 60),
-    Marines = Color3.fromRGB(0, 0, 128),
+    Marines = Color3.fromRGB(0, 100, 255),
     Ally = Color3.fromRGB(0, 255, 127),
     Neutral = Color3.fromRGB(255, 255, 255),
     HP_Green = Color3.fromRGB(0, 255, 100),
     HP_Yellow = Color3.fromRGB(255, 200, 0),
-    HP_Red = Color3.fromRGB(255, 50, 50)
+    HP_Red = Color3.fromRGB(255, 50, 50),
 }
 
--- Utils
-local function getFolder()
-    if espFolder and espFolder.Parent then return espFolder end
-    espFolder = CoreGui:FindFirstChild("CleanESP") or Instance.new("Folder")
-    espFolder.Name = "CleanESP"
-    espFolder.Parent = CoreGui
-    return espFolder
+-- Utility Functions
+local function SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    return success and result or nil
 end
 
-local function isAlly(target)
-    local success, result = pcall(function()
+local function GetESPFolder()
+    if ESPFolder and ESPFolder.Parent then return ESPFolder end
+    ESPFolder = CoreGui:FindFirstChild("VoidHub_ESP") or Instance.new("Folder")
+    ESPFolder.Name = "VoidHub_ESP"
+    ESPFolder.Parent = CoreGui
+    return ESPFolder
+end
+
+local function IsAlly(target)
+    return SafeCall(function()
         local gui = player:FindFirstChild("PlayerGui")
         if not gui then return false end
-        local scroll = gui:FindFirstChild("Main") and gui.Main:FindFirstChild("Allies") and gui.Main.Allies:FindFirstChild("Container") and gui.Main.Allies.Container:FindFirstChild("Allies") and gui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
+        
+        local main = gui:FindFirstChild("Main")
+        if not main then return false end
+        
+        local allies = main:FindFirstChild("Allies")
+        if not allies then return false end
+        
+        local container = allies:FindFirstChild("Container")
+        if not container then return false end
+        
+        local alliesFolder = container:FindFirstChild("Allies")
+        if not alliesFolder then return false end
+        
+        local scroll = alliesFolder:FindFirstChild("ScrollingFrame")
         if not scroll then return false end
+        
         for _, v in pairs(scroll:GetDescendants()) do
-            if v:IsA("ImageButton") and v.Name == target.Name then return true end
+            if v:IsA("ImageButton") and v.Name == target.Name then
+                return true
+            end
         end
         return false
-    end)
-    return success and result
+    end) or false
 end
 
-local function getColor(target)
+local function GetTeamColor(target)
     if target == player then return Colors.Ally end
-    local myTeam, theirTeam = player.Team, target.Team
+    
+    local myTeam = player.Team
+    local theirTeam = target.Team
+    
     if not myTeam or not theirTeam then return Colors.Neutral end
-    local myName, theirName = myTeam.Name, theirTeam.Name
+    
+    local myName = myTeam.Name
+    local theirName = theirTeam.Name
     
     if myName == theirName then
-        if myName == "Pirates" then return isAlly(target) and Colors.Ally or Colors.Pirates
-        elseif myName == "Marines" then return Colors.Marines end
+        if myName == "Pirates" then
+            return IsAlly(target) and Colors.Ally or Colors.Pirates
+        elseif myName == "Marines" then
+            return Colors.Marines
+        end
     end
-    if (myName == "Pirates" and theirName == "Marines") or (myName == "Marines" and theirName == "Pirates") then
+    
+    if (myName == "Pirates" and theirName == "Marines") or 
+       (myName == "Marines" and theirName == "Pirates") then
         return myName == "Pirates" and Colors.Marines or Colors.Pirates
     end
+    
     return Colors.Neutral
 end
 
-local function getHPColor(percent)
+local function GetHPColor(percent)
     if percent > 0.6 then return Colors.HP_Green
     elseif percent > 0.3 then return Colors.HP_Yellow
     else return Colors.HP_Red end
 end
 
--- ESP Creation
-local function createESP(target)
-    if ESPs[target] then return end
+-- Create ESP for a player
+local function CreateESP(target)
+    if ESPObjects[target] then return end
+    if target == player then return end
+    
     local char = target.Character
     if not char then return end
+    
     local head = char:FindFirstChild("Head")
     if not head then return end
     
-    local folder = getFolder()
+    local folder = GetESPFolder()
+    
+    -- Billboard GUI
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = target.Name
+    billboard.Name = target.Name .. "_ESP"
     billboard.Adornee = head
     billboard.Size = UDim2.fromOffset(180, 55)
-    billboard.StudsOffset = Vector3.new(0, 2.4, 0)
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
     billboard.AlwaysOnTop = true
     billboard.Parent = folder
     
-    -- Name
+    -- Name Label
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "Name"
     nameLabel.Size = UDim2.new(1, 0, 0, 16)
@@ -106,7 +150,7 @@ local function createESP(target)
     nameLabel.Text = target.DisplayName
     nameLabel.Parent = billboard
     
-    -- Level & Distance
+    -- Info Label
     local infoLabel = Instance.new("TextLabel")
     infoLabel.Name = "Info"
     infoLabel.Size = UDim2.new(1, 0, 0, 12)
@@ -158,170 +202,210 @@ local function createESP(target)
     hpText.Text = "100%"
     hpText.Parent = billboard
     
-    ESPs[target] = {
+    ESPObjects[target] = {
         Billboard = billboard,
         Name = nameLabel,
         Info = infoLabel,
         HP_Fill = hpFill,
         HP_Text = hpText,
-        LastHP = 1
+        LastUpdate = tick(),
     }
 end
 
-local function removeESP(target)
-    if ESPs[target] then
-        pcall(function() ESPs[target].Billboard:Destroy() end)
-        ESPs[target] = nil
+-- Remove ESP
+local function RemoveESP(target)
+    local esp = ESPObjects[target]
+    if esp then
+        SafeCall(function() esp.Billboard:Destroy() end)
+        ESPObjects[target] = nil
     end
 end
 
--- Render
-local function startRender()
-    if renderConnection then return end
+-- Update ESP
+local function UpdateESP(target)
+    local esp = ESPObjects[target]
+    if not esp then return end
     
-    renderConnection = RunService.Heartbeat:Connect(function()
+    local char = target.Character
+    local head = char and char:FindFirstChild("Head")
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    
+    if not char or not head or not hrp or not humanoid then
+        esp.Billboard.Enabled = false
+        return
+    end
+    
+    esp.Billboard.Enabled = true
+    esp.Billboard.Adornee = head
+    
+    -- Update color
+    local color = GetTeamColor(target)
+    esp.Name.TextColor3 = color
+    
+    -- Get distance
+    local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    local dist = myHRP and math.floor((myHRP.Position - hrp.Position).Magnitude) or 0
+    
+    -- Get level
+    local level = "???"
+    SafeCall(function()
+        local data = target:FindFirstChild("Data")
+        local lv = data and data:FindFirstChild("Level")
+        if lv then level = tostring(lv.Value) end
+    end)
+    
+    esp.Info.Text = string.format("Lv. %s | %dm", level, dist)
+    
+    -- Update health
+    local hpPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
+    local hp = math.floor(hpPercent * 100)
+    
+    esp.HP_Fill.Size = UDim2.new(hpPercent, 0, 1, 0)
+    esp.HP_Fill.BackgroundColor3 = GetHPColor(hpPercent)
+    esp.HP_Text.Text = hp .. "%"
+    esp.HP_Text.TextColor3 = GetHPColor(hpPercent)
+    
+    esp.LastUpdate = tick()
+end
+
+-- Render Loop (30 FPS cap for performance)
+local LastRender = 0
+local RenderInterval = 1/30
+
+local function StartRender()
+    if RenderConnection then return end
+    
+    RenderConnection = RunService.Heartbeat:Connect(function()
         if not ESPEnabled then
-            for _, v in pairs(ESPs) do
-                if v.Billboard then v.Billboard.Enabled = false end
+            for _, esp in pairs(ESPObjects) do
+                if esp.Billboard then
+                    esp.Billboard.Enabled = false
+                end
             end
             return
         end
         
-        local myChar = player.Character
-        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local now = tick()
+        if now - LastRender < RenderInterval then return end
+        LastRender = now
         
-        for _, target in pairs(Players:GetPlayers()) do
-            if target == player then continue end
-            
-            if not ESPs[target] then createESP(target) end
-            local esp = ESPs[target]
-            if not esp then continue end
-            
-            local char = target.Character
-            local head = char and char:FindFirstChild("Head")
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-            
-            if char and head and hrp and humanoid and myHRP then
-                esp.Billboard.Enabled = true
-                esp.Billboard.Adornee = head
-                
-                local color = getColor(target)
-                esp.Name.TextColor3 = color
-                
-                local dist = math.floor((myHRP.Position - hrp.Position).Magnitude)
-                local hpPercent = math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-                local hp = math.floor(hpPercent * 100)
-                
-                local level = "???"
-                pcall(function()
-                    local data = target:FindFirstChild("Data")
-                    local lv = data and data:FindFirstChild("Level")
-                    if lv then level = tostring(lv.Value) end
-                end)
-                
-                esp.Info.Text = string.format("Lv. %s | %dm", level, dist)
-                
-                -- Animated Health Bar
-                local targetSize = UDim2.new(hpPercent, 0, 1, 0)
-                esp.HP_Fill:TweenSize(targetSize, Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.15, true)
-                esp.HP_Fill.BackgroundColor3 = getHPColor(hpPercent)
-                esp.HP_Text.Text = hp .. "%"
-                esp.HP_Text.TextColor3 = getHPColor(hpPercent)
-                
-                esp.LastHP = hpPercent
+        -- Create ESP for new players
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= player and not ESPObjects[plr] then
+                CreateESP(plr)
+            end
+        end
+        
+        -- Update all ESP
+        for plr, _ in pairs(ESPObjects) do
+            if plr.Parent then
+                UpdateESP(plr)
             else
-                esp.Billboard.Enabled = false
+                RemoveESP(plr)
             end
         end
     end)
 end
 
-local function stopRender()
-    if renderConnection then
-        renderConnection:Disconnect()
-        renderConnection = nil
+local function StopRender()
+    if RenderConnection then
+        RenderConnection:Disconnect()
+        RenderConnection = nil
     end
 end
 
--- Features
-local function startV3()
-    if v3Loop then return end
-    v3Loop = task.spawn(function()
+-- V3 System
+local function StartV3()
+    if V3Connection then return end
+    
+    V3Connection = task.spawn(function()
         while V3Enabled do
-            pcall(function()
+            SafeCall(function()
                 ReplicatedStorage.Remotes.CommE:FireServer("ActivateAbility")
             end)
             task.wait(31)
         end
-        v3Loop = nil
+        V3Connection = nil
     end)
 end
 
-local function stopV3()
+local function StopV3()
     V3Enabled = false
 end
 
-local function startDodge()
-    if dodgeLoop then return end
-    dodgeLoop = task.spawn(function()
-        while DodgeEnabled do
-            task.wait()
-            pcall(function()
-                for _, v in next, getgc() do
-                    if typeof(v) == "function" then
-                        local char = player.Character
-                        local dodge = char and char:FindFirstChild("Dodge")
-                        if dodge and getfenv(v).script == dodge then
-                            for i, upv in next, getupvalues(v) do
-                                if tostring(upv) == "0.4" then
-                                    setupvalue(v, i, 0)
-                                end
+-- Dodge System
+local function StartDodge()
+    if DodgeConnection then return end
+    
+    DodgeConnection = RunService.Heartbeat:Connect(function()
+        if not DodgeEnabled then return end
+        
+        SafeCall(function()
+            for _, v in next, getgc() do
+                if typeof(v) == "function" then
+                    local char = player.Character
+                    local dodge = char and char:FindFirstChild("Dodge")
+                    if dodge and getfenv(v).script == dodge then
+                        for i, upv in next, getupvalues(v) do
+                            if tostring(upv) == "0.4" then
+                                setupvalue(v, i, 0)
                             end
                         end
                     end
                 end
-            end)
-        end
-        dodgeLoop = nil
+            end
+        end)
     end)
 end
 
-local function stopDodge()
+local function StopDodge()
     DodgeEnabled = false
+    if DodgeConnection then
+        DodgeConnection:Disconnect()
+        DodgeConnection = nil
+    end
 end
 
--- Hook
-if not getgenv().ESPHooked then
-    getgenv().ESPHooked = true
+-- BunnyHop Hook (One-time setup)
+local function SetupBunnyHook()
+    if getgenv().VoidHub_BunnyHooked then return end
+    getgenv().VoidHub_BunnyHooked = true
+    
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         local args = {...}
+        
         if method == "FireServer" or method == "InvokeServer" then
             if type(args[1]) == "string" and args[1]:upper() == "DODGE" then
                 if BunnyHopEnabled then
                     local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
                     if hum then
                         task.defer(function()
-                            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+                            SafeCall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
                         end)
                     end
                 end
             end
         end
+        
         return oldNamecall(self, ...)
     end)
 end
 
 -- Anti AFK
-local function setupAntiAfk()
+local function SetupAntiAfk()
+    if getgenv().VoidHub_AntiAfkSetup then return end
+    getgenv().VoidHub_AntiAfkSetup = true
+    
     player.Idled:Connect(function()
         if not AntiAfkEnabled then return end
-        pcall(function()
+        
+        SafeCall(function()
             local vim = game:GetService("VirtualInputManager")
-            local x = workspace.CurrentCamera.ViewportSize.X / 2
-            local y = workspace.CurrentCamera.ViewportSize.Y / 2
+            local x = camera.ViewportSize.X / 2
+            local y = camera.ViewportSize.Y / 2
             vim:SendMouseButtonEvent(x, y, 0, true, game, 1)
             task.wait(0.05)
             vim:SendMouseButtonEvent(x, y, 0, false, game, 1)
@@ -329,30 +413,49 @@ local function setupAntiAfk()
     end)
 end
 
--- API
+-- Cleanup on player leave
+Players.PlayerRemoving:Connect(function(plr)
+    RemoveESP(plr)
+end)
+
+-- API Functions
+function ESPModule:SetESP(state)
+    ESPEnabled = state
+    if state then
+        StartRender()
+    else
+        StopRender()
+        -- Cleanup
+        for plr, _ in pairs(ESPObjects) do
+            RemoveESP(plr)
+        end
+    end
+end
+
 function ESPModule:SetV3(state)
     V3Enabled = state
-    if state then startV3() else stopV3() end
+    if state then StartV3() else StopV3() end
 end
 
 function ESPModule:SetBunnyhop(state)
     BunnyHopEnabled = state
+    if state then SetupBunnyHook() end
 end
 
 function ESPModule:SetNoDodgeCD(state)
     DodgeEnabled = state
-    if state then startDodge() else stopDodge() end
+    if state then StartDodge() else StopDodge() end
 end
 
 function ESPModule:SetAntiAfk(state)
     AntiAfkEnabled = state
-    if state then setupAntiAfk() end
+    if state then SetupAntiAfk() end
 end
 
 function ESPModule:SetBuso(state)
     BusoEnabled = state
     if state then
-        pcall(function()
+        SafeCall(function()
             if not player.Character:FindFirstChild("HasBuso") then
                 ReplicatedStorage.Remotes.CommF_:InvokeServer("Buso")
             end
@@ -360,14 +463,8 @@ function ESPModule:SetBuso(state)
     end
 end
 
-function ESPModule:SetESP(state)
-    ESPEnabled = state
-    if state then startRender() else stopRender() end
-end
-
--- Cleanup
-Players.PlayerRemoving:Connect(function(plr)
-    removeESP(plr)
-end)
+-- Initialize
+SetupBunnyHook()
+SetupAntiAfk()
 
 return ESPModule
