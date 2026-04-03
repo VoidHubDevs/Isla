@@ -1,5 +1,11 @@
+--[[
+    Silent Aim Module v2.0 - Optimized
+    Efficient targeting, minimal CPU usage
+--]]
+
 local SilentAimModule = {}
 
+-- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
@@ -8,79 +14,85 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
-local SilentAimPlayersEnabled = false
-local SilentAimNPCsEnabled = false
-local UserWantsPlayerAim = false
-local UserWantsNPCAim = false
+-- State
+local SilentAimPlayers = false
+local SilentAimNPCs = false
+local UserWantsPlayer = false
+local UserWantsNPC = false
 local PredictionEnabled = false
 local HighlightEnabled = false
 local AutoKen = false
 local ZSkillOrM1 = false
-local autoKenRunning = false
 
-local renderConnection = nil
-local currentTool = nil
-local PlayersPosition, NPCPosition = nil, nil
-local currentHighlight = nil
-local currentTargetType = nil
-local SelectedPlayer = nil
+-- Settings
+local PredictionAmount = 0.135
+local MaxRange = 1000
+local TargetRefreshRate = 0.1
 
-local PredictionAmount = 0.1
-local maxRange = 1000
+-- Runtime Data
+local RenderConnection = nil
+local AutoKenTask = nil
+local CurrentHighlight = nil
+local CurrentTool = nil
+local TargetPosition = nil
+local CurrentTarget = nil
+local LastTargetUpdate = 0
 
-local characterConnections = {}
-local Skills = {"X"}
-local Booms = {"TAP"}
+-- Skills
+local Skills = {"X", "C", "V", "Z"}
+local Booms = {"TAP", "M1"}
 
-local function getHRP(model)
+-- Utility
+local function SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    return success and result or nil
+end
+
+local function GetHRP(model)
     return model and model:FindFirstChild("HumanoidRootPart")
 end
 
-local function getHumanoid(model)
+local function GetHumanoid(model)
     return model and model:FindFirstChildOfClass("Humanoid")
 end
 
-local function clearConnections()
-    for _, conn in ipairs(characterConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    characterConnections = {}
+local function IsAlive(model)
+    local hum = GetHumanoid(model)
+    return hum and hum.Health > 0
 end
 
-local function getPredictedPosition(hrp)
-    if not hrp then return nil end
-    local humanoid = getHumanoid(hrp.Parent)
-    if not humanoid then return hrp.Position end
-    if not PredictionEnabled or humanoid.WalkSpeed < 5 then
-        return hrp.Position
-    end
-    return hrp.Position + (hrp.Velocity * PredictionAmount)
-end
-
-local function isAllyWithMe(targetPlayer)
-    local success, result = pcall(function()
+-- Ally Check
+local function IsAlly(targetPlayer)
+    return SafeCall(function()
         local myGui = player:FindFirstChild("PlayerGui")
         if not myGui then return false end
         
-        local scrolling = myGui:FindFirstChild("Main")
-            and myGui.Main:FindFirstChild("Allies")
-            and myGui.Main.Allies:FindFirstChild("Container")
-            and myGui.Main.Allies.Container:FindFirstChild("Allies")
-            and myGui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
+        local main = myGui:FindFirstChild("Main")
+        if not main then return false end
         
-        if not scrolling then return false end
+        local allies = main:FindFirstChild("Allies")
+        if not allies then return false end
         
-        for _, frame in pairs(scrolling:GetDescendants()) do
+        local container = allies:FindFirstChild("Container")
+        if not container then return false end
+        
+        local alliesFolder = container:FindFirstChild("Allies")
+        if not alliesFolder then return false end
+        
+        local scroll = alliesFolder:FindFirstChild("ScrollingFrame")
+        if not scroll then return false end
+        
+        for _, frame in pairs(scroll:GetDescendants()) do
             if frame:IsA("ImageButton") and frame.Name == targetPlayer.Name then
                 return true
             end
         end
         return false
-    end)
-    return success and result
+    end) or false
 end
 
-local function isEnemy(targetPlayer)
+-- Enemy Check
+local function IsEnemy(targetPlayer)
     if not targetPlayer or targetPlayer == player then return false end
     
     local myTeam = player.Team
@@ -88,78 +100,103 @@ local function isEnemy(targetPlayer)
     
     if not myTeam or not targetTeam then return true end
     
-    if myTeam.Name == "Pirates" and targetTeam.Name == "Marines" then return true end
-    if myTeam.Name == "Marines" and targetTeam.Name == "Pirates" then return true end
-    if myTeam.Name == "Pirates" and targetTeam.Name == "Pirates" then
-        return not isAllyWithMe(targetPlayer)
+    local myName, theirName = myTeam.Name, targetTeam.Name
+    
+    if myName == "Pirates" and theirName == "Marines" then return true end
+    if myName == "Marines" and theirName == "Pirates" then return true end
+    if myName == "Pirates" and theirName == "Pirates" then
+        return not IsAlly(targetPlayer)
     end
-    if myTeam.Name == "Marines" and targetTeam.Name == "Marines" then return false end
+    if myName == "Marines" and theirName == "Marines" then return false end
     
     return true
 end
 
-local function getClosestPlayer(lpHRP)
-    if not lpHRP then return nil end
+-- Prediction
+local function GetPredictedPosition(hrp)
+    if not hrp then return nil end
     
-    local closest, closestDist = nil, math.huge
+    local humanoid = GetHumanoid(hrp.Parent)
+    if not humanoid then return hrp.Position end
     
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= player and isEnemy(pl) and pl.Character then
-            local hum = getHumanoid(pl.Character)
-            local hrp = getHRP(pl.Character)
+    if not PredictionEnabled or humanoid.WalkSpeed < 5 then
+        return hrp.Position
+    end
+    
+    return hrp.Position + (hrp.Velocity * PredictionAmount)
+end
+
+-- Get Closest Player
+local function GetClosestPlayer()
+    local myChar = player.Character
+    local myHRP = GetHRP(myChar)
+    if not myHRP then return nil end
+    
+    local closest, closestDist = nil, MaxRange
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and IsEnemy(plr) then
+            local char = plr.Character
+            local hrp = GetHRP(char)
+            local hum = GetHumanoid(char)
             
-            if hum and hum.Health > 0 and hrp then
-                local dist = (hrp.Position - lpHRP.Position).Magnitude
-                if dist <= maxRange and dist < closestDist then
+            if hrp and hum and hum.Health > 0 then
+                local dist = (hrp.Position - myHRP.Position).Magnitude
+                if dist < closestDist then
                     closestDist = dist
-                    closest = pl
+                    closest = plr
                 end
             end
         end
     end
+    
     return closest
 end
 
-local function getClosestNPC(lpHRP)
-    if not lpHRP then return nil end
+-- Get Closest NPC
+local function GetClosestNPC()
+    local myChar = player.Character
+    local myHRP = GetHRP(myChar)
+    if not myHRP then return nil end
     
     local enemiesFolder = Workspace:FindFirstChild("Enemies")
     if not enemiesFolder then return nil end
     
-    local closest, closestDist = nil, math.huge
+    local closest, closestDist = nil, MaxRange
     
     for _, npc in ipairs(enemiesFolder:GetChildren()) do
-        if not npc:IsA("Model") then continue end
-        
-        local hum = getHumanoid(npc)
-        local hrp = getHRP(npc)
-        
-        if hum and hum.Health > 0 and hrp then
-            local dist = (hrp.Position - lpHRP.Position).Magnitude
-            if dist <= maxRange and dist < closestDist then
-                closestDist = dist
-                closest = npc
+        if npc:IsA("Model") then
+            local hrp = GetHRP(npc)
+            local hum = GetHumanoid(npc)
+            
+            if hrp and hum and hum.Health > 0 then
+                local dist = (hrp.Position - myHRP.Position).Magnitude
+                if dist < closestDist then
+                    closestDist = dist
+                    closest = npc
+                end
             end
         end
     end
+    
     return closest
 end
 
-local function clearHighlight()
-    if currentHighlight then
-        pcall(function() currentHighlight:Destroy() end)
-        currentHighlight = nil
-        currentTargetType = nil
+-- Highlight System
+local function ClearHighlight()
+    if CurrentHighlight then
+        SafeCall(function() CurrentHighlight:Destroy() end)
+        CurrentHighlight = nil
     end
 end
 
-local function applyHighlight(targetModel, targetType)
+local function ApplyHighlight(targetModel)
     if not HighlightEnabled or not targetModel then return end
-    if currentHighlight and currentHighlight.Adornee == targetModel then return end
+    if CurrentHighlight and CurrentHighlight.Adornee == targetModel then return end
     
-    clearHighlight()
+    ClearHighlight()
     
-    local success = pcall(function()
+    SafeCall(function()
         local hl = Instance.new("Highlight")
         hl.FillColor = Color3.fromRGB(255, 255, 0)
         hl.OutlineColor = Color3.fromRGB(255, 255, 0)
@@ -167,104 +204,115 @@ local function applyHighlight(targetModel, targetType)
         hl.OutlineTransparency = 0
         hl.Adornee = targetModel
         hl.Parent = targetModel
-        currentHighlight = hl
-        currentTargetType = targetType
+        CurrentHighlight = hl
     end)
 end
 
-local function startRenderLoop()
-    if renderConnection then return end
+-- Target Update (throttled)
+local function UpdateTarget()
+    local now = tick()
+    if now - LastTargetUpdate < TargetRefreshRate then return end
+    LastTargetUpdate = now
     
-    renderConnection = RunService.RenderStepped:Connect(function()
-        local lpChar = player.Character
-        if not lpChar then return end
-        local lpHRP = getHRP(lpChar)
-        if not lpHRP then return end
-        
-        if not SilentAimPlayersEnabled and not SilentAimNPCsEnabled then
-            return
-        end
-        
-        local targetModel, lookTargetPos = nil, nil
-        
-        if SilentAimPlayersEnabled then
-            local targetPlayer = SelectedPlayer or getClosestPlayer(lpHRP)
-            if targetPlayer and targetPlayer ~= player and targetPlayer.Character then
-                local hrp = getHRP(targetPlayer.Character)
-                PlayersPosition = getPredictedPosition(hrp)
-                lookTargetPos = PlayersPosition
-                targetModel = targetPlayer.Character
-                applyHighlight(targetModel, "player")
-            else
-                PlayersPosition = nil
+    TargetPosition = nil
+    CurrentTarget = nil
+    
+    if SilentAimPlayers then
+        local target = GetClosestPlayer()
+        if target and target.Character then
+            local hrp = GetHRP(target.Character)
+            if hrp then
+                TargetPosition = GetPredictedPosition(hrp)
+                CurrentTarget = target.Character
+                ApplyHighlight(target.Character)
+                return
             end
-        elseif currentTargetType == "player" then
-            PlayersPosition = nil
-            clearHighlight()
         end
+    end
+    
+    if SilentAimNPCs then
+        local target = GetClosestNPC()
+        if target then
+            local hrp = GetHRP(target)
+            if hrp then
+                TargetPosition = GetPredictedPosition(hrp)
+                CurrentTarget = target
+                ApplyHighlight(target)
+            end
+        end
+    end
+    
+    if not CurrentTarget then
+        ClearHighlight()
+    end
+end
+
+-- Render Loop
+local function StartRender()
+    if RenderConnection then return end
+    
+    RenderConnection = RunService.RenderStepped:Connect(function()
+        if not SilentAimPlayers and not SilentAimNPCs then return end
         
-        if SilentAimNPCsEnabled then
-            local closestNPC = getClosestNPC(lpHRP)
-            if closestNPC then
-                local hrp = getHRP(closestNPC)
-                NPCPosition = getPredictedPosition(hrp)
-                lookTargetPos = NPCPosition
-                if not targetModel then
-                    targetModel = closestNPC
-                    applyHighlight(targetModel, "NPC")
+        UpdateTarget()
+        
+        -- Auto-aim character
+        if CurrentTarget and TargetPosition then
+            local myChar = player.Character
+            local myHRP = GetHRP(myChar)
+            
+            if myHRP and CurrentTool then
+                local isDough = CurrentTool.Name == "Dough-Dough"
+                if not isDough then
+                    local lookVector = (Vector3.new(TargetPosition.X, myHRP.Position.Y, TargetPosition.Z) - myHRP.Position).Unit
+                    myHRP.CFrame = CFrame.new(myHRP.Position, myHRP.Position + lookVector)
                 end
-            else
-                NPCPosition = nil
-            end
-        elseif currentTargetType == "NPC" then
-            NPCPosition = nil
-            clearHighlight()
-        end
-        
-        if currentTool and lookTargetPos then
-            local isDough = currentTool.Name == "Dough-Dough"
-            if not isDough then
-                local lookVector = (Vector3.new(lookTargetPos.X, lpHRP.Position.Y, lookTargetPos.Z) - lpHRP.Position).Unit
-                lpHRP.CFrame = CFrame.new(lpHRP.Position, lpHRP.Position + lookVector)
             end
         end
     end)
 end
 
-local function stopRenderLoop()
-    if renderConnection then
-        renderConnection:Disconnect()
-        renderConnection = nil
+local function StopRender()
+    if RenderConnection then
+        RenderConnection:Disconnect()
+        RenderConnection = nil
+    end
+    ClearHighlight()
+end
+
+-- Tool Watcher
+local function OnToolEquipped(tool)
+    CurrentTool = tool
+end
+
+local function SetupCharacter(char)
+    char.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then
+            OnToolEquipped(child)
+        end
+    end)
+    
+    char.ChildRemoved:Connect(function(child)
+        if child == CurrentTool then
+            CurrentTool = nil
+        end
+    end)
+    
+    for _, child in pairs(char:GetChildren()) do
+        if child:IsA("Tool") then
+            OnToolEquipped(child)
+        end
     end
 end
 
-local function hookTool(tool)
-    currentTool = tool
-    table.insert(characterConnections, tool.AncestryChanged:Connect(function(_, parent)
-        if not parent then currentTool = nil end
-    end))
-end
+player.CharacterAdded:Connect(SetupCharacter)
+if player.Character then SetupCharacter(player.Character) end
 
-local function onCharacterAdded(char)
-    clearConnections()
+-- MetaMethod Hook (One-time)
+local function SetupHook()
+    if getgenv().VoidHub_SilentAimHooked then return end
+    getgenv().VoidHub_SilentAimHooked = true
     
-    for _, child in ipairs(char:GetChildren()) do
-        if child:IsA("Tool") then hookTool(child) end
-    end
-    
-    table.insert(characterConnections, char.ChildAdded:Connect(function(child)
-        if child:IsA("Tool") then hookTool(child) end
-    end))
-    
-    table.insert(characterConnections, char.ChildRemoved:Connect(function(child)
-        if child == currentTool then currentTool = nil end
-    end))
-end
-
-player.CharacterAdded:Connect(onCharacterAdded)
-if player.Character then onCharacterAdded(player.Character) end
-
-task.spawn(function()
     local ok, hookMeta = pcall(getrawmetatable, game)
     if not ok or not hookMeta then return end
     
@@ -277,27 +325,19 @@ task.spawn(function()
         
         if method == "FireServer" then
             if typeof(args[1]) == "Vector3" then
-                if SilentAimPlayersEnabled and PlayersPosition then
-                    args[1] = PlayersPosition
-                elseif SilentAimNPCsEnabled and NPCPosition then
-                    args[1] = NPCPosition
+                if TargetPosition and (SilentAimPlayers or SilentAimNPCs) then
+                    args[1] = TargetPosition
                 end
             elseif type(args[1]) == "string" and table.find(Booms, args[1]) then
-                if ZSkillOrM1 then
-                    if SilentAimPlayersEnabled and PlayersPosition then
-                        args[2] = PlayersPosition
-                    elseif SilentAimNPCsEnabled and NPCPosition then
-                        args[2] = NPCPosition
-                    end
+                if ZSkillOrM1 and TargetPosition and (SilentAimPlayers or SilentAimNPCs) then
+                    args[2] = TargetPosition
                 end
             end
         elseif method == "InvokeServer" then
-            if currentTool and currentTool.Name == "Buddy Sword" then
+            if CurrentTool and CurrentTool.Name == "Buddy Sword" then
                 if type(args[1]) == "string" and table.find(Skills, args[1]) then
-                    if SilentAimPlayersEnabled and PlayersPosition then
-                        args[2] = PlayersPosition
-                    elseif SilentAimNPCsEnabled and NPCPosition then
-                        args[2] = NPCPosition
+                    if TargetPosition and (SilentAimPlayers or SilentAimNPCs) then
+                        args[2] = TargetPosition
                     end
                 end
             end
@@ -307,9 +347,13 @@ task.spawn(function()
     end)
     
     setreadonly(hookMeta, true)
-end)
+end
 
-task.spawn(function()
+-- Mouse Module Hook
+local function SetupMouseHook()
+    if getgenv().VoidHub_MouseHooked then return end
+    getgenv().VoidHub_MouseHooked = true
+    
     local MouseModule = ReplicatedStorage:FindFirstChild("Mouse")
     if not MouseModule then return end
     
@@ -317,123 +361,71 @@ task.spawn(function()
     if not ok or type(Mouse) ~= "table" then return end
     
     RunService.Heartbeat:Connect(function()
-        if not ZSkillOrM1 or (not SilentAimPlayersEnabled and not SilentAimNPCsEnabled) then
-            return
-        end
+        if not ZSkillOrM1 or not TargetPosition then return end
+        if not SilentAimPlayers and not SilentAimNPCs then return end
         
-        local targetCFrame = nil
-        if PlayersPosition then
-            targetCFrame = CFrame.new(PlayersPosition)
-        elseif NPCPosition then
-            targetCFrame = CFrame.new(NPCPosition)
-        end
-        
-        if targetCFrame then
-            pcall(function()
-                Mouse.Hit = targetCFrame
-                Mouse.Target = nil
-            end)
-        end
+        SafeCall(function()
+            Mouse.Hit = CFrame.new(TargetPosition)
+            Mouse.Target = nil
+        end)
     end)
-end)
+end
 
-local function HasTag(tagName)
+-- Auto Ken
+local function HasKenTag()
     local char = player.Character
     if not char then return false end
-    return CollectionService:HasTag(char, tagName)
+    return SafeCall(function()
+        return game:GetService("CollectionService"):HasTag(char, "Ken")
+    end) or false
 end
 
-local function startAutoKenLoop()
-    if autoKenRunning then return end
-    autoKenRunning = true
+local function StartAutoKen()
+    if AutoKenTask then return end
     
-    task.spawn(function()
+    AutoKenTask = task.spawn(function()
         while AutoKen do
+            if HasKenTag() then
+                SafeCall(function()
+                    local commE = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommE")
+                    commE:FireServer("Ken", true)
+                end)
+            end
             task.wait(0.1)
-            
-            if not HasTag("Ken") then continue end
-            
-            pcall(function()
-                local playerGui = player:FindFirstChild("PlayerGui")
-                if not playerGui then return end
-                
-                local mobileButtons = playerGui:FindFirstChild("MobileContextButtons")
-                if not mobileButtons then return end
-                
-                local frame = mobileButtons:FindFirstChild("ContextButtonFrame")
-                if not frame then return end
-                
-                local kenBtn = frame:FindFirstChild("BoundActionKen")
-                if kenBtn and kenBtn:GetAttribute("Selected") ~= true then
-                    kenBtn:SetAttribute("Selected", true)
-                end
-            end)
-            
-            pcall(function()
-                local commE = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("CommE")
-                commE:FireServer("Ken", true)
-            end)
         end
-        autoKenRunning = false
+        AutoKenTask = nil
     end)
 end
 
-function SilentAimModule:SetAutoKen(state)
-    AutoKen = state
-    if state then startAutoKenLoop() end
-end
+-- Initialize hooks
+SetupHook()
+SetupMouseHook()
 
-function SilentAimModule:SetZSkillOrM1(state)
-    ZSkillOrM1 = state
-end
-
-function SilentAimModule:Pause()
-    SilentAimPlayersEnabled = false
-    SilentAimNPCsEnabled = false
-end
-
-function SilentAimModule:Restore()
-    SilentAimPlayersEnabled = UserWantsPlayerAim
-    SilentAimNPCsEnabled = UserWantsNPCAim
-end
-
-function SilentAimModule:IsPlayerAimEnabled()
-    return SilentAimPlayersEnabled
-end
-
-function SilentAimModule:IsNPCAimEnabled()
-    return SilentAimNPCsEnabled
-end
-
-function SilentAimModule:SetDistanceLimit(num)
-    if type(num) == "number" then
-        maxRange = num
+-- API
+function SilentAimModule:SetPlayerSilentAim(state)
+    UserWantsPlayer = state
+    SilentAimPlayers = state
+    
+    if state then
+        StartRender()
+    elseif not SilentAimNPCs then
+        StopRender()
     end
 end
 
-function SilentAimModule:SetSelectedPlayer(playerName)
-    if not playerName or playerName == "" then
-        SelectedPlayer = nil
-        return
+function SilentAimModule:SetNPCSilentAim(state)
+    UserWantsNPC = state
+    SilentAimNPCs = state
+    
+    if state then
+        StartRender()
+    elseif not SilentAimPlayers then
+        StopRender()
     end
-    SelectedPlayer = Players:FindFirstChild(playerName)
-end
-
-function SilentAimModule:GetSelectedPlayer()
-    return SelectedPlayer and SelectedPlayer.Name or "None"
 end
 
 function SilentAimModule:SetPrediction(state)
     PredictionEnabled = state
-end
-
-function SilentAimModule:SetHighlight(state)
-    HighlightEnabled = state
-    if not state then clearHighlight() end
-end
-
-function SilentAimModule:IsHighlightEnabled()
-    return HighlightEnabled
 end
 
 function SilentAimModule:SetPredictionAmount(num)
@@ -442,31 +434,41 @@ function SilentAimModule:SetPredictionAmount(num)
     end
 end
 
-function SilentAimModule:SetPlayerSilentAim(state)
-    UserWantsPlayerAim = state
-    SilentAimPlayersEnabled = state
-    
-    if state then
-        startRenderLoop()
-    else
-        if not SilentAimNPCsEnabled then
-            stopRenderLoop()
-            clearHighlight()
-        end
-    end
+function SilentAimModule:SetHighlight(state)
+    HighlightEnabled = state
+    if not state then ClearHighlight() end
 end
 
-function SilentAimModule:SetNPCSilentAim(state)
-    UserWantsNPCAim = state
-    SilentAimNPCsEnabled = state
-    
-    if state then
-        startRenderLoop()
-    else
-        if not SilentAimPlayersEnabled then
-            stopRenderLoop()
-            clearHighlight()
-        end
+function SilentAimModule:SetAutoKen(state)
+    AutoKen = state
+    if state then StartAutoKen() end
+end
+
+function SilentAimModule:SetZSkillOrM1(state)
+    ZSkillOrM1 = state
+end
+
+function SilentAimModule:Pause()
+    SilentAimPlayers = false
+    SilentAimNPCs = false
+end
+
+function SilentAimModule:Restore()
+    SilentAimPlayers = UserWantsPlayer
+    SilentAimNPCs = UserWantsNPC
+end
+
+function SilentAimModule:IsPlayerAimEnabled()
+    return SilentAimPlayers
+end
+
+function SilentAimModule:IsNPCAimEnabled()
+    return SilentAimNPCs
+end
+
+function SilentAimModule:SetDistanceLimit(num)
+    if type(num) == "number" then
+        MaxRange = num
     end
 end
 
