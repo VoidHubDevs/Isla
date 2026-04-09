@@ -1,0 +1,1032 @@
+local VoidHub = {}
+
+local Players = game:GetService("Players")
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+-- ============================================
+-- VOIDHUB THEME CONFIGURATION
+-- ============================================
+local Theme = {
+    Primary = Color3.fromRGB(138, 43, 226),      -- Purple
+    Secondary = Color3.fromRGB(75, 0, 130),      -- Indigo
+    Accent = Color3.fromRGB(186, 85, 211),       -- Medium Orchid
+    Background = Color3.fromRGB(25, 0, 50),      -- Dark Purple
+    DarkBg = Color3.fromRGB(15, 0, 30),          -- Very Dark Purple
+    Text = Color3.fromRGB(255, 255, 255),
+    TextDim = Color3.fromRGB(200, 180, 255),
+    Success = Color3.fromRGB(0, 255, 150),
+    Error = Color3.fromRGB(255, 80, 80),
+    Warning = Color3.fromRGB(255, 200, 0),
+    LogoId = "126161789124643",
+    DiscordLink = "https://discord.gg/jHfzbP2ztH"
+}
+
+local minimized = false
+
+-- ============================================
+-- MAIN SCREEN GUI
+-- ============================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "VoidHub_Main"
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = PlayerGui
+
+-- ============================================
+-- HELPER FUNCTIONS
+-- ============================================
+local function ApplyStyle(obj, cornerRadius)
+    cornerRadius = cornerRadius or 8
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1.5
+    stroke.Color = Theme.Primary
+    stroke.Transparency = 0.3
+    stroke.Parent = obj
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, cornerRadius)
+    corner.Parent = obj
+    
+    return stroke, corner
+end
+
+local function ApplyGradient(obj, color1, color2)
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, color1 or Theme.Primary),
+        ColorSequenceKeypoint.new(1, color2 or Theme.Secondary)
+    }
+    gradient.Parent = obj
+    return gradient
+end
+
+local function CreateShadow(parent)
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.BackgroundTransparency = 1
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    shadow.Size = UDim2.new(1, 20, 1, 20)
+    shadow.ZIndex = -1
+    shadow.Image = "rbxassetid://1316045217"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.6
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+    shadow.Parent = parent
+    return shadow
+end
+
+-- ============================================
+-- MAIN FRAME
+-- ============================================
+local MainFrame = Instance.new("CanvasGroup")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 650, 0, 450)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.BackgroundColor3 = Theme.Background
+MainFrame.BackgroundTransparency = 0.15
+MainFrame.Parent = ScreenGui
+
+ApplyStyle(MainFrame, 12)
+CreateShadow(MainFrame)
+
+-- Purple Glow Background
+local BGGlow = Instance.new("ImageLabel")
+BGGlow.Name = "BGGlow"
+BGGlow.Size = UDim2.new(1.5, 0, 1.5, 0)
+BGGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+BGGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+BGGlow.BackgroundTransparency = 1
+BGGlow.Image = "rbxassetid://14133844306"
+BGGlow.ImageColor3 = Theme.Primary
+BGGlow.ImageTransparency = 0.85
+BGGlow.ZIndex = -2
+BGGlow.Parent = MainFrame
+
+-- Background Gradient
+local BGGradient = Instance.new("UIGradient")
+BGGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Theme.DarkBg),
+    ColorSequenceKeypoint.new(0.5, Theme.Background),
+    ColorSequenceKeypoint.new(1, Theme.Secondary)
+}
+BGGradient.Rotation = 45
+BGGradient.Parent = MainFrame
+
+-- ============================================
+-- HEADER SECTION
+-- ============================================
+local HeaderFrame = Instance.new("Frame")
+HeaderFrame.Name = "Header"
+HeaderFrame.Size = UDim2.new(1, 0, 0, 70)
+HeaderFrame.Position = UDim2.new(0, 0, 0, 0)
+HeaderFrame.BackgroundColor3 = Theme.DarkBg
+HeaderFrame.BackgroundTransparency = 0.3
+HeaderFrame.BorderSizePixel = 0
+HeaderFrame.Parent = MainFrame
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 12)
+HeaderCorner.Parent = HeaderFrame
+
+local HeaderStroke = Instance.new("UIStroke")
+HeaderStroke.Thickness = 1
+HeaderStroke.Color = Theme.Primary
+HeaderStroke.Transparency = 0.5
+HeaderStroke.Parent = HeaderFrame
+
+-- Fix corners for header
+local HeaderFix = Instance.new("Frame")
+HeaderFix.Name = "Fix"
+HeaderFix.Size = UDim2.new(1, 0, 0, 20)
+HeaderFix.Position = UDim2.new(0, 0, 1, -20)
+HeaderFix.BackgroundColor3 = Theme.DarkBg
+HeaderFix.BackgroundTransparency = 0.3
+HeaderFix.BorderSizePixel = 0
+HeaderFix.Parent = HeaderFrame
+
+-- Logo Image
+local LogoImage = Instance.new("ImageLabel")
+LogoImage.Name = "Logo"
+LogoImage.Size = UDim2.new(0, 50, 0, 50)
+LogoImage.Position = UDim2.new(0, 15, 0.5, 0)
+LogoImage.AnchorPoint = Vector2.new(0, 0.5)
+LogoImage.BackgroundTransparency = 1
+LogoImage.Image = "rbxassetid://" .. Theme.LogoId
+LogoImage.Parent = HeaderFrame
+
+local LogoStroke = Instance.new("UIStroke")
+LogoStroke.Thickness = 2
+LogoStroke.Color = Theme.Primary
+LogoStroke.Parent = LogoImage
+
+local LogoCorner = Instance.new("UICorner")
+LogoCorner.CornerRadius = UDim.new(0, 8)
+LogoCorner.Parent = LogoImage
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(0, 250, 0, 35)
+Title.Position = UDim2.new(0, 75, 0.5, -10)
+Title.AnchorPoint = Vector2.new(0, 0.5)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "VoidHub"
+Title.TextColor3 = Theme.Text
+Title.TextSize = 28
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = HeaderFrame
+
+local TitleGradient = Instance.new("UIGradient")
+TitleGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Theme.Accent),
+    ColorSequenceKeypoint.new(1, Theme.Primary)
+}
+TitleGradient.Parent = Title
+
+-- Subtitle
+local Subtitle = Instance.new("TextLabel")
+Subtitle.Name = "Subtitle"
+Subtitle.Size = UDim2.new(0, 250, 0, 20)
+Subtitle.Position = UDim2.new(0, 75, 0.5, 15)
+Subtitle.AnchorPoint = Vector2.new(0, 0.5)
+Subtitle.BackgroundTransparency = 1
+Subtitle.Font = Enum.Font.Gotham
+Subtitle.Text = "Premium Auto Bounty"
+Subtitle.TextColor3 = Theme.TextDim
+Subtitle.TextSize = 14
+Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+Subtitle.Parent = HeaderFrame
+
+-- Discord Button
+local DiscordButton = Instance.new("TextButton")
+DiscordButton.Name = "DiscordButton"
+DiscordButton.Size = UDim2.new(0, 140, 0, 35)
+DiscordButton.Position = UDim2.new(1, -160, 0.5, 0)
+DiscordButton.AnchorPoint = Vector2.new(0, 0.5)
+DiscordButton.Text = " Join Discord"
+DiscordButton.Font = Enum.Font.GothamBold
+DiscordButton.TextSize = 14
+DiscordButton.TextColor3 = Theme.Text
+DiscordButton.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+DiscordButton.Parent = HeaderFrame
+
+ApplyStyle(DiscordButton, 8)
+
+local DiscordIcon = Instance.new("ImageLabel")
+DiscordIcon.Name = "Icon"
+DiscordIcon.Size = UDim2.new(0, 18, 0, 18)
+DiscordIcon.Position = UDim2.new(0, 8, 0.5, 0)
+DiscordIcon.AnchorPoint = Vector2.new(0, 0.5)
+DiscordIcon.BackgroundTransparency = 1
+DiscordIcon.Image = "rbxassetid://112278309951162"
+DiscordIcon.Parent = DiscordButton
+
+DiscordButton.MouseButton1Click:Connect(function()
+    pcall(function()
+        setclipboard(Theme.DiscordLink)
+    end)
+    -- Try to open directly if possible
+    local success = pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "VoidHub",
+            Text = "Discord link copied to clipboard!",
+            Duration = 3
+        })
+    end)
+    if not success then
+        print("Discord Link: " .. Theme.DiscordLink)
+    end
+end)
+
+-- Minimize Button
+local MinButton = Instance.new("TextButton")
+MinButton.Name = "MinimizeButton"
+MinButton.Size = UDim2.new(0, 30, 0, 30)
+MinButton.Position = UDim2.new(1, -40, 0.5, 0)
+MinButton.AnchorPoint = Vector2.new(0, 0.5)
+MinButton.BackgroundTransparency = 1
+MinButton.Text = "−"
+MinButton.Font = Enum.Font.GothamBold
+MinButton.TextColor3 = Theme.Text
+MinButton.TextSize = 25
+MinButton.Parent = HeaderFrame
+
+-- Minimized Icon
+local MiniIcon = Instance.new("ImageButton")
+MiniIcon.Name = "MiniIcon"
+MiniIcon.Parent = ScreenGui
+MiniIcon.Size = UDim2.new(0, 60, 0, 60)
+MiniIcon.Position = UDim2.new(0.02, 0, 0.85, 0)
+MiniIcon.BackgroundColor3 = Theme.DarkBg
+MiniIcon.Image = "rbxassetid://" .. Theme.LogoId
+MiniIcon.Visible = false
+ApplyStyle(MiniIcon, 12)
+
+local MiniGlow = Instance.new("ImageLabel")
+MiniGlow.Name = "Glow"
+MiniGlow.Size = UDim2.new(1.5, 0, 1.5, 0)
+MiniGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+MiniGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+MiniGlow.BackgroundTransparency = 1
+MiniGlow.Image = "rbxassetid://14133844306"
+MiniGlow.ImageColor3 = Theme.Primary
+MiniGlow.ImageTransparency = 0.7
+MiniGlow.ZIndex = -1
+MiniGlow.Parent = MiniIcon
+
+MinButton.MouseButton1Click:Connect(function()
+    minimized = true
+    MainFrame.Visible = false
+    MiniIcon.Visible = true
+end)
+
+MiniIcon.MouseButton1Click:Connect(function()
+    minimized = false
+    MiniIcon.Visible = false
+    MainFrame.Visible = true
+end)
+
+-- ============================================
+-- TAB SYSTEM
+-- ============================================
+local TabFrame = Instance.new("Frame")
+TabFrame.Name = "TabFrame"
+TabFrame.Size = UDim2.new(0, 150, 1, -70)
+TabFrame.Position = UDim2.new(0, 0, 0, 70)
+TabFrame.BackgroundColor3 = Theme.DarkBg
+TabFrame.BackgroundTransparency = 0.5
+TabFrame.BorderSizePixel = 0
+TabFrame.Parent = MainFrame
+
+local TabCorner = Instance.new("UICorner")
+TabCorner.CornerRadius = UDim.new(0, 0)
+TabCorner.Parent = TabFrame
+
+local TabLayout = Instance.new("UIListLayout")
+TabLayout.Padding = UDim.new(0, 5)
+TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabLayout.Parent = TabFrame
+
+local TabPadding = Instance.new("UIPadding")
+TabPadding.PaddingTop = UDim.new(0, 10)
+TabPadding.Parent = TabFrame
+
+local ContentFrame = Instance.new("Frame")
+ContentFrame.Name = "ContentFrame"
+ContentFrame.Size = UDim2.new(1, -150, 1, -70)
+ContentFrame.Position = UDim2.new(0, 150, 0, 70)
+ContentFrame.BackgroundTransparency = 1
+ContentFrame.Parent = MainFrame
+
+local Tabs = {}
+local CurrentTab = nil
+
+local function CreateTab(name, iconId)
+    local TabButton = Instance.new("TextButton")
+    TabButton.Name = name .. "Tab"
+    TabButton.Size = UDim2.new(0, 130, 0, 40)
+    TabButton.Text = " " .. name
+    TabButton.Font = Enum.Font.GothamBold
+    TabButton.TextSize = 14
+    TabButton.TextColor3 = Theme.TextDim
+    TabButton.BackgroundColor3 = Theme.Background
+    TabButton.BackgroundTransparency = 0.5
+    TabButton.Parent = TabFrame
+    ApplyStyle(TabButton, 6)
+    
+    if iconId then
+        local Icon = Instance.new("ImageLabel")
+        Icon.Name = "Icon"
+        Icon.Size = UDim2.new(0, 20, 0, 20)
+        Icon.Position = UDim2.new(0, 10, 0.5, 0)
+        Icon.AnchorPoint = Vector2.new(0, 0.5)
+        Icon.BackgroundTransparency = 1
+        Icon.Image = "rbxassetid://" .. iconId
+        Icon.Parent = TabButton
+    end
+    
+    local TabContent = Instance.new("ScrollingFrame")
+    TabContent.Name = name .. "Content"
+    TabContent.Size = UDim2.new(1, -20, 1, -20)
+    TabContent.Position = UDim2.new(0, 10, 0, 10)
+    TabContent.BackgroundTransparency = 1
+    TabContent.ScrollBarThickness = 4
+    TabContent.ScrollBarImageColor3 = Theme.Primary
+    TabContent.Visible = false
+    TabContent.Parent = ContentFrame
+    
+    local ContentLayout = Instance.new("UIListLayout")
+    ContentLayout.Padding = UDim.new(0, 10)
+    ContentLayout.Parent = TabContent
+    
+    local ContentPadding = Instance.new("UIPadding")
+    ContentPadding.PaddingTop = UDim.new(0, 5)
+    ContentPadding.Parent = TabContent
+    
+    TabButton.MouseButton1Click:Connect(function()
+        if CurrentTab then
+            CurrentTab.Button.BackgroundColor3 = Theme.Background
+            CurrentTab.Button.TextColor3 = Theme.TextDim
+            CurrentTab.Content.Visible = false
+        end
+        CurrentTab = {Button = TabButton, Content = TabContent}
+        TabButton.BackgroundColor3 = Theme.Primary
+        TabButton.TextColor3 = Theme.Text
+        TabContent.Visible = true
+    end)
+    
+    table.insert(Tabs, {Button = TabButton, Content = TabContent})
+    
+    return TabContent
+end
+
+-- ============================================
+-- UI COMPONENTS
+-- ============================================
+local function CreateToggle(parent, text, callback)
+    local ToggleFrame = Instance.new("Frame")
+    ToggleFrame.Name = text .. "Toggle"
+    ToggleFrame.Size = UDim2.new(1, 0, 0, 45)
+    ToggleFrame.BackgroundColor3 = Theme.DarkBg
+    ToggleFrame.BackgroundTransparency = 0.3
+    ToggleFrame.Parent = parent
+    ApplyStyle(ToggleFrame, 8)
+    
+    local Label = Instance.new("TextLabel")
+    Label.Name = "Label"
+    Label.Size = UDim2.new(0.6, 0, 1, 0)
+    Label.Position = UDim2.new(0, 15, 0, 0)
+    Label.BackgroundTransparency = 1
+    Label.Font = Enum.Font.Gotham
+    Label.Text = text
+    Label.TextColor3 = Theme.Text
+    Label.TextSize = 15
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = ToggleFrame
+    
+    local ToggleButton = Instance.new("TextButton")
+    ToggleButton.Name = "Toggle"
+    ToggleButton.Size = UDim2.new(0, 50, 0, 25)
+    ToggleButton.Position = UDim2.new(1, -65, 0.5, 0)
+    ToggleButton.AnchorPoint = Vector2.new(0, 0.5)
+    ToggleButton.Text = ""
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    ToggleButton.Parent = ToggleFrame
+    ApplyStyle(ToggleButton, 12)
+    
+    local ToggleCircle = Instance.new("Frame")
+    ToggleCircle.Name = "Circle"
+    ToggleCircle.Size = UDim2.new(0, 20, 0, 20)
+    ToggleCircle.Position = UDim2.new(0, 2, 0.5, 0)
+    ToggleCircle.AnchorPoint = Vector2.new(0, 0.5)
+    ToggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleCircle.Parent = ToggleButton
+    
+    local CircleCorner = Instance.new("UICorner")
+    CircleCorner.CornerRadius = UDim.new(1, 0)
+    CircleCorner.Parent = ToggleCircle
+    
+    local enabled = false
+    
+    local function UpdateToggle()
+        if enabled then
+            TweenService:Create(ToggleButton, TweenInfo.new(0.2), {BackgroundColor3 = Theme.Primary}):Play()
+            TweenService:Create(ToggleCircle, TweenInfo.new(0.2), {Position = UDim2.new(0, 28, 0.5, 0)}):Play()
+        else
+            TweenService:Create(ToggleButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 60, 60)}):Play()
+            TweenService:Create(ToggleCircle, TweenInfo.new(0.2), {Position = UDim2.new(0, 2, 0.5, 0)}):Play()
+        end
+        pcall(callback, enabled)
+    end
+    
+    ToggleButton.MouseButton1Click:Connect(function()
+        enabled = not enabled
+        UpdateToggle()
+    end)
+    
+    return {
+        Frame = ToggleFrame,
+        Set = function(state)
+            enabled = state
+            UpdateToggle()
+        end,
+        Get = function() return enabled end
+    }
+end
+
+local function CreateSlider(parent, text, min, max, default, callback)
+    local SliderFrame = Instance.new("Frame")
+    SliderFrame.Name = text .. "Slider"
+    SliderFrame.Size = UDim2.new(1, 0, 0, 60)
+    SliderFrame.BackgroundColor3 = Theme.DarkBg
+    SliderFrame.BackgroundTransparency = 0.3
+    SliderFrame.Parent = parent
+    ApplyStyle(SliderFrame, 8)
+    
+    local Label = Instance.new("TextLabel")
+    Label.Name = "Label"
+    Label.Size = UDim2.new(0.5, 0, 0, 25)
+    Label.Position = UDim2.new(0, 15, 0, 5)
+    Label.BackgroundTransparency = 1
+    Label.Font = Enum.Font.Gotham
+    Label.Text = text
+    Label.TextColor3 = Theme.Text
+    Label.TextSize = 15
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = SliderFrame
+    
+    local ValueLabel = Instance.new("TextLabel")
+    ValueLabel.Name = "Value"
+    ValueLabel.Size = UDim2.new(0.3, 0, 0, 25)
+    ValueLabel.Position = UDim2.new(1, -15, 0, 5)
+    ValueLabel.AnchorPoint = Vector2.new(1, 0)
+    ValueLabel.BackgroundTransparency = 1
+    ValueLabel.Font = Enum.Font.GothamBold
+    ValueLabel.Text = tostring(default)
+    ValueLabel.TextColor3 = Theme.Accent
+    ValueLabel.TextSize = 15
+    ValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    ValueLabel.Parent = SliderFrame
+    
+    local SliderBg = Instance.new("Frame")
+    SliderBg.Name = "Background"
+    SliderBg.Size = UDim2.new(1, -30, 0, 8)
+    SliderBg.Position = UDim2.new(0, 15, 0, 40)
+    SliderBg.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    SliderBg.BorderSizePixel = 0
+    SliderBg.Parent = SliderFrame
+    
+    local SliderBgCorner = Instance.new("UICorner")
+    SliderBgCorner.CornerRadius = UDim.new(1, 0)
+    SliderBgCorner.Parent = SliderBg
+    
+    local SliderFill = Instance.new("Frame")
+    SliderFill.Name = "Fill"
+    SliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+    SliderFill.BackgroundColor3 = Theme.Primary
+    SliderFill.BorderSizePixel = 0
+    SliderFill.Parent = SliderBg
+    
+    local SliderFillCorner = Instance.new("UICorner")
+    SliderFillCorner.CornerRadius = UDim.new(1, 0)
+    SliderFillCorner.Parent = SliderFill
+    
+    local SliderKnob = Instance.new("Frame")
+    SliderKnob.Name = "Knob"
+    SliderKnob.Size = UDim2.new(0, 16, 0, 16)
+    SliderKnob.Position = UDim2.new((default - min) / (max - min), -8, 0.5, 0)
+    SliderKnob.AnchorPoint = Vector2.new(0, 0.5)
+    SliderKnob.BackgroundColor3 = Theme.Text
+    SliderKnob.Parent = SliderBg
+    
+    local KnobCorner = Instance.new("UICorner")
+    KnobCorner.CornerRadius = UDim.new(1, 0)
+    KnobCorner.Parent = SliderKnob
+    
+    local dragging = false
+    local value = default
+    
+    local function UpdateSlider(input)
+        local pos = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+        value = math.floor(min + (pos * (max - min)))
+        SliderFill.Size = UDim2.new(pos, 0, 1, 0)
+        SliderKnob.Position = UDim2.new(pos, -8, 0.5, 0)
+        ValueLabel.Text = tostring(value)
+        pcall(callback, value)
+    end
+    
+    SliderKnob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
+    end)
+    
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            UpdateSlider(input)
+        end
+    end)
+    
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    SliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            UpdateSlider(input)
+        end
+    end)
+    
+    return {
+        Frame = SliderFrame,
+        Set = function(newValue)
+            value = math.clamp(newValue, min, max)
+            local pos = (value - min) / (max - min)
+            SliderFill.Size = UDim2.new(pos, 0, 1, 0)
+            SliderKnob.Position = UDim2.new(pos, -8, 0.5, 0)
+            ValueLabel.Text = tostring(value)
+        end,
+        Get = function() return value end
+    }
+end
+
+local function CreateButton(parent, text, callback)
+    local Button = Instance.new("TextButton")
+    Button.Name = text .. "Button"
+    Button.Size = UDim2.new(1, 0, 0, 40)
+    Button.Text = text
+    Button.Font = Enum.Font.GothamBold
+    Button.TextSize = 15
+    Button.TextColor3 = Theme.Text
+    Button.BackgroundColor3 = Theme.Primary
+    Button.BackgroundTransparency = 0.3
+    Button.Parent = parent
+    ApplyStyle(Button, 8)
+    ApplyGradient(Button)
+    
+    Button.MouseEnter:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
+    end)
+    
+    Button.MouseLeave:Connect(function()
+        TweenService:Create(Button, TweenInfo.new(0.2), {BackgroundTransparency = 0.3}):Play()
+    end)
+    
+    Button.MouseButton1Click:Connect(function()
+        pcall(callback)
+    end)
+    
+    return Button
+end
+
+local function CreateLabel(parent, text)
+    local Label = Instance.new("TextLabel")
+    Label.Name = "Label"
+    Label.Size = UDim2.new(1, 0, 0, 25)
+    Label.BackgroundTransparency = 1
+    Label.Font = Enum.Font.GothamBold
+    Label.Text = text
+    Label.TextColor3 = Theme.Accent
+    Label.TextSize = 16
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.Parent = parent
+    return Label
+end
+
+local function CreateStatBox(parent, label, value)
+    local Box = Instance.new("Frame")
+    Box.Name = label .. "Box"
+    Box.Size = UDim2.new(0.48, 0, 0, 50)
+    Box.BackgroundColor3 = Theme.DarkBg
+    Box.BackgroundTransparency = 0.3
+    Box.Parent = parent
+    ApplyStyle(Box, 8)
+    
+    local LabelText = Instance.new("TextLabel")
+    LabelText.Name = "Label"
+    LabelText.Size = UDim2.new(1, 0, 0, 20)
+    LabelText.Position = UDim2.new(0, 0, 0, 5)
+    LabelText.BackgroundTransparency = 1
+    LabelText.Font = Enum.Font.Gotham
+    LabelText.Text = label
+    LabelText.TextColor3 = Theme.TextDim
+    LabelText.TextSize = 12
+    LabelText.Parent = Box
+    
+    local ValueText = Instance.new("TextLabel")
+    ValueText.Name = "Value"
+    ValueText.Size = UDim2.new(1, 0, 0, 25)
+    ValueText.Position = UDim2.new(0, 0, 0, 22)
+    ValueText.BackgroundTransparency = 1
+    ValueText.Font = Enum.Font.GothamBold
+    ValueText.Text = tostring(value)
+    ValueText.TextColor3 = Theme.Text
+    ValueText.TextSize = 18
+    ValueText.Parent = Box
+    
+    return {
+        Frame = Box,
+        SetValue = function(newValue)
+            ValueText.Text = tostring(newValue)
+        end
+    }
+end
+
+-- ============================================
+-- CREATE TABS
+-- ============================================
+local AutoBountyTab = CreateTab("Auto Bounty", "139320203929471")
+local AimbotTab = CreateTab("Aimbot", "112939815722412")
+local SilentAimTab = CreateTab("Silent Aim", "134238210197149")
+local SettingsTab = CreateTab("Settings", "134238210197149")
+
+-- Set first tab as active
+if Tabs[1] then
+    Tabs[1].Button.BackgroundColor3 = Theme.Primary
+    Tabs[1].Button.TextColor3 = Theme.Text
+    Tabs[1].Content.Visible = true
+    CurrentTab = Tabs[1]
+end
+
+-- ============================================
+-- AUTO BOUNTY TAB CONTENT
+-- ============================================
+CreateLabel(AutoBountyTab, "Statistics")
+
+local StatsFrame = Instance.new("Frame")
+StatsFrame.Name = "StatsFrame"
+StatsFrame.Size = UDim2.new(1, 0, 0, 60)
+StatsFrame.BackgroundTransparency = 1
+StatsFrame.Parent = AutoBountyTab
+
+local StatsLayout = Instance.new("UIGridLayout")
+StatsLayout.CellSize = UDim2.new(0.32, -5, 1, 0)
+StatsLayout.CellPadding = UDim2.new(0, 8, 0, 0)
+StatsLayout.Parent = StatsFrame
+
+local EarnedStat = CreateStatBox(StatsFrame, "Earned", "0")
+local TotalStat = CreateStatBox(StatsFrame, "Total", "0")
+local BountyStat = CreateStatBox(StatsFrame, "Bounty", "0")
+
+CreateLabel(AutoBountyTab, "Target Information")
+
+local TargetLabel = Instance.new("TextLabel")
+TargetLabel.Name = "TargetLabel"
+TargetLabel.Size = UDim2.new(1, 0, 0, 35)
+TargetLabel.BackgroundColor3 = Theme.DarkBg
+TargetLabel.BackgroundTransparency = 0.3
+TargetLabel.Font = Enum.Font.Gotham
+TargetLabel.Text = "  Target: None"
+TargetLabel.TextColor3 = Theme.Text
+TargetLabel.TextSize = 14
+TargetLabel.TextXAlignment = Enum.TextXAlignment.Left
+TargetLabel.Parent = AutoBountyTab
+ApplyStyle(TargetLabel, 6)
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(1, 0, 0, 35)
+StatusLabel.BackgroundColor3 = Theme.DarkBg
+StatusLabel.BackgroundTransparency = 0.3
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "  Status: Ready"
+StatusLabel.TextColor3 = Theme.Success
+StatusLabel.TextSize = 14
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = AutoBountyTab
+ApplyStyle(StatusLabel, 6)
+
+CreateLabel(AutoBountyTab, "Controls")
+
+local ButtonFrame = Instance.new("Frame")
+ButtonFrame.Name = "ButtonFrame"
+ButtonFrame.Size = UDim2.new(1, 0, 0, 50)
+ButtonFrame.BackgroundTransparency = 1
+ButtonFrame.Parent = AutoBountyTab
+
+local ButtonLayout = Instance.new("UIListLayout")
+ButtonLayout.FillDirection = Enum.FillDirection.Horizontal
+ButtonLayout.Padding = UDim.new(0, 10)
+ButtonLayout.Parent = ButtonFrame
+
+local SkipButton = Instance.new("TextButton")
+SkipButton.Name = "SkipButton"
+SkipButton.Size = UDim2.new(0.32, 0, 1, 0)
+SkipButton.Text = "Skip Player"
+SkipButton.Font = Enum.Font.GothamBold
+SkipButton.TextSize = 13
+SkipButton.TextColor3 = Theme.Text
+SkipButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+SkipButton.BackgroundTransparency = 0.3
+SkipButton.Parent = ButtonFrame
+ApplyStyle(SkipButton, 6)
+
+local SpectateButton = Instance.new("TextButton")
+SpectateButton.Name = "SpectateButton"
+SpectateButton.Size = UDim2.new(0.32, 0, 1, 0)
+SpectateButton.Text = "Spectate: OFF"
+SpectateButton.Font = Enum.Font.GothamBold
+SpectateButton.TextSize = 13
+SpectateButton.TextColor3 = Theme.Text
+SpectateButton.BackgroundColor3 = Theme.Secondary
+SpectateButton.BackgroundTransparency = 0.3
+SpectateButton.Parent = ButtonFrame
+ApplyStyle(SpectateButton, 6)
+
+local TransformButton = Instance.new("TextButton")
+TransformButton.Name = "TransformButton"
+TransformButton.Size = UDim2.new(0.32, 0, 1, 0)
+TransformButton.Text = "Transform: OFF"
+TransformButton.Font = Enum.Font.GothamBold
+TransformButton.TextSize = 13
+TransformButton.TextColor3 = Theme.Text
+TransformButton.BackgroundColor3 = Theme.Secondary
+TransformButton.BackgroundTransparency = 0.3
+TransformButton.Parent = ButtonFrame
+ApplyStyle(TransformButton, 6)
+
+-- ============================================
+-- AIMBOT TAB CONTENT
+-- ============================================
+CreateLabel(AimbotTab, "Aimbot Settings")
+
+local AimbotPlayerToggle = CreateToggle(AimbotTab, "Aimlock Players", function(enabled)
+    getgenv().AimlockPlayerEnabled = enabled
+    if enabled then
+        getgenv().AimlockModule:SetPlayerAimlock(true)
+    else
+        getgenv().AimlockModule:SetPlayerAimlock(false)
+    end
+end)
+
+local AimbotNpcToggle = CreateToggle(AimbotTab, "Aimlock NPCs/Bosses", function(enabled)
+    getgenv().AimlockNpcEnabled = enabled
+    if enabled then
+        getgenv().AimlockModule:SetNpcAimlock(true)
+    else
+        getgenv().AimlockModule:SetNpcAimlock(false)
+    end
+end)
+
+local AimbotPredictionToggle = CreateToggle(AimbotTab, "Prediction", function(enabled)
+    getgenv().AimlockModule:SetPrediction(enabled)
+end)
+
+CreateLabel(AimbotTab, "Prediction Settings")
+
+local PredictionSlider = CreateSlider(AimbotTab, "Prediction Amount", 0, 50, 10, function(value)
+    getgenv().AimlockModule:SetPredictionTime(value / 100)
+end)
+
+CreateLabel(AimbotTab, "Visuals")
+
+local HighlightToggle = CreateToggle(AimbotTab, "Highlight Target", function(enabled)
+    -- Handled internally by aimbot module
+end)
+
+-- ============================================
+-- SILENT AIM TAB CONTENT
+-- ============================================
+CreateLabel(SilentAimTab, "Silent Aim Settings")
+
+local SilentPlayerToggle = CreateToggle(SilentAimTab, "Silent Aim Players", function(enabled)
+    getgenv().SilentAimModule:SetPlayerSilentAim(enabled)
+end)
+
+local SilentNpcToggle = CreateToggle(SilentAimTab, "Silent Aim NPCs", function(enabled)
+    getgenv().SilentAimModule:SetNPCSilentAim(enabled)
+end)
+
+local SilentPredictionToggle = CreateToggle(SilentAimTab, "Prediction", function(enabled)
+    getgenv().SilentAimModule:SetPrediction(enabled)
+end)
+
+local SilentHighlightToggle = CreateToggle(SilentAimTab, "Highlight Target", function(enabled)
+    getgenv().SilentAimModule:SetHighlight(enabled)
+end)
+
+local AutoKenToggle = CreateToggle(SilentAimTab, "Auto Ken/Observation", function(enabled)
+    getgenv().SilentAimModule:SetAutoKen(enabled)
+end)
+
+local ZSkillToggle = CreateToggle(SilentAimTab, "Z Skill & M1 Redirect", function(enabled)
+    getgenv().SilentAimModule:SetZSkillOrM1(enabled)
+end)
+
+CreateLabel(SilentAimTab, "Distance Settings")
+
+local DistanceSlider = CreateSlider(SilentAimTab, "Max Range", 100, 2000, 1000, function(value)
+    getgenv().SilentAimModule:SetDistanceLimit(value)
+end)
+
+local SilentPredictionSlider = CreateSlider(SilentAimTab, "Prediction Amount", 0, 50, 10, function(value)
+    getgenv().SilentAimModule:SetPredictionAmount(value / 100)
+end)
+
+-- ============================================
+-- SETTINGS TAB CONTENT
+-- ============================================
+CreateLabel(SettingsTab, "UI Settings")
+
+local function CreateThemeButton(parent, text, color)
+    local Button = Instance.new("TextButton")
+    Button.Name = text .. "Theme"
+    Button.Size = UDim2.new(0.23, -8, 0, 35)
+    Button.Text = text
+    Button.Font = Enum.Font.GothamBold
+    Button.TextSize = 12
+    Button.TextColor3 = Theme.Text
+    Button.BackgroundColor3 = color
+    Button.Parent = parent
+    ApplyStyle(Button, 6)
+    return Button
+end
+
+local ThemeFrame = Instance.new("Frame")
+ThemeFrame.Name = "ThemeFrame"
+ThemeFrame.Size = UDim2.new(1, 0, 0, 80)
+ThemeFrame.BackgroundTransparency = 1
+ThemeFrame.Parent = SettingsTab
+
+local ThemeLabel = Instance.new("TextLabel")
+ThemeLabel.Name = "ThemeLabel"
+ThemeLabel.Size = UDim2.new(1, 0, 0, 25)
+ThemeLabel.BackgroundTransparency = 1
+ThemeLabel.Font = Enum.Font.Gotham
+ThemeLabel.Text = "Theme Color"
+ThemeLabel.TextColor3 = Theme.TextDim
+ThemeLabel.TextSize = 13
+ThemeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ThemeLabel.Parent = ThemeFrame
+
+local ThemeGrid = Instance.new("UIGridLayout")
+ThemeGrid.CellSize = UDim2.new(0.25, -8, 0, 35)
+ThemeGrid.CellPadding = UDim2.new(0, 8, 0, 8)
+ThemeGrid.Parent = ThemeFrame
+
+CreateThemeButton(ThemeFrame, "Purple", Color3.fromRGB(138, 43, 226))
+CreateThemeButton(ThemeFrame, "Blue", Color3.fromRGB(0, 100, 255))
+CreateThemeButton(ThemeFrame, "Red", Color3.fromRGB(255, 50, 50))
+CreateThemeButton(ThemeFrame, "Green", Color3.fromRGB(0, 200, 100))
+
+CreateButton(SettingsTab, "Reset UI Position", function()
+    MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+end)
+
+CreateButton(SettingsTab, "Copy Discord Link", function()
+    pcall(function()
+        setclipboard(Theme.DiscordLink)
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "VoidHub",
+            Text = "Discord link copied!",
+            Duration = 3
+        })
+    end)
+end)
+
+-- ============================================
+-- DRAGGING FUNCTIONALITY
+-- ============================================
+local function EnableDrag(frame)
+    local dragging, dragStart, startPos
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+        end
+    end)
+    
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+EnableDrag(MainFrame)
+EnableDrag(MiniIcon)
+
+-- ============================================
+-- BUTTON EVENTS
+-- ============================================
+SkipButton.MouseButton1Click:Connect(function()
+    if getgenv().SkipPlayer then
+        getgenv().SkipPlayer()
+    end
+end)
+
+SpectateButton.MouseButton1Click:Connect(function()
+    getgenv().SpectateTarget = not getgenv().SpectateTarget
+    SpectateButton.Text = getgenv().SpectateTarget and "Spectate: ON" or "Spectate: OFF"
+    SpectateButton.BackgroundColor3 = getgenv().SpectateTarget and Theme.Success or Theme.Secondary
+    
+    if getgenv().SpectateTarget and getgenv().targ and getgenv().targ.Character then
+        Workspace.CurrentCamera.CameraSubject = getgenv().targ.Character
+    else
+        local lp = game.Players.LocalPlayer
+        if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+            Workspace.CurrentCamera.CameraSubject = lp.Character.Humanoid
+        end
+    end
+end)
+
+TransformButton.MouseButton1Click:Connect(function()
+    getgenv().FruitTransform = not getgenv().FruitTransform
+    TransformButton.Text = getgenv().FruitTransform and "Transform: ON" or "Transform: OFF"
+    TransformButton.BackgroundColor3 = getgenv().FruitTransform and Theme.Success or Theme.Secondary
+end)
+
+-- ============================================
+-- UI UPDATE FUNCTIONS
+-- ============================================
+function VoidHub.UpdateStats(earned, total, bounty)
+    EarnedStat.SetValue(earned)
+    TotalStat.SetValue(total)
+    BountyStat.SetValue(bounty)
+end
+
+function VoidHub.SetTarget(name)
+    TargetLabel.Text = "  Target: " .. (name or "None")
+end
+
+function VoidHub.SetStatus(text, statusType)
+    StatusLabel.Text = "  Status: " .. text
+    if statusType == "error" then
+        StatusLabel.TextColor3 = Theme.Error
+    elseif statusType == "success" then
+        StatusLabel.TextColor3 = Theme.Success
+    elseif statusType == "warning" then
+        StatusLabel.TextColor3 = Theme.Warning
+    else
+        StatusLabel.TextColor3 = Theme.Text
+    end
+end
+
+-- ============================================
+-- INITIALIZE MODULES
+-- ============================================
+task.spawn(function()
+    -- Load Aimbot Module
+    getgenv().AimlockModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidHubDevs/Isla/refs/heads/main/AimbotModule.lua"))() or {}
+    
+    -- Load Silent Aim Module  
+    getgenv().SilentAimModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidHubDevs/Isla/refs/heads/main/SilentAimModule.lua"))() or {}
+end)
+
+-- ============================================
+-- INTRO ANIMATION
+-- ============================================
+MainFrame.Size = UDim2.new(0, 0, 0, 0)
+MainFrame.Visible = true
+
+TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
+    Size = UDim2.new(0, 650, 0, 450)
+}):Play()
+
+print("VoidHub Loaded Successfully!")
+print("Discord: " .. Theme.DiscordLink)
+
+return VoidHub
