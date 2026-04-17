@@ -1,526 +1,720 @@
-local StuffsModule = {}
+local SilentAimModule = {}
 
-local PingsOrFpsEnabled = false
+local VSkillModule = loadstring(game:HttpGet("https://raw.githubusercontent.com/jaanu91/Ip/refs/heads/main/Uo"))()
+
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
+local Character = player.Character or player.CharacterAdded:Wait()
+local UserInputService = game:GetService("UserInputService")  
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
-local waterPart = Workspace:FindFirstChild("Map") and Workspace.Map:FindFirstChild("WaterBase-Plane")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-local Lighting = game:GetService("Lighting")
-local Terrain = Workspace:FindFirstChildOfClass("Terrain")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-local Net = Modules:WaitForChild("Net")
-local RegisterAttack = Net:WaitForChild("RE/RegisterAttack")
-local RegisterHit = Net:WaitForChild("RE/RegisterHit")
-local ShootGunEvent = Net:WaitForChild("RE/ShootGunEvent")
-local GunValidator = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Validator2")
+local camera = workspace.CurrentCamera
+local RS = game:GetService("ReplicatedStorage")
+local commE = RS:WaitForChild("Remotes"):WaitForChild("CommE")
+local MouseModule = RS:FindFirstChild("Mouse")
 
-local ScreenGui
-local FpsPingLabel
-local FpsBoostEnabled = false
-local InfiniteEnergy = false
-local FastAttackEnabled = false
-local WalkWaterEnabled = false
-local fog = false
-local Lava = false
+local Services = setmetatable({}, {
+    __index = function(self, serviceName)
+        local good, service = pcall(game.GetService, game, serviceName);
+        if (good) then
+            self[serviceName] = service
+            return service;
+        end
+    end
+});
 
-local fastConn
-local energyConnection
-local fpsBoostConn
+local SilentAimPlayersEnabled = false
+local SilentAimNPCsEnabled = false
+local UserWantsplayerAim = false
+local UserWantsNPCAim = false
+local PredictionEnabled = false
+local HighlightEnabled = false 
+local AutoKen = false
+local ZSkillorM1= false
+local autoKenRunning = false
 
-local savedSettings = {}
-local connections = {}
+local renderConnection = nil
+local currentTool = nil
+local playersaimbot = nil
+local PlayersPosition = nil
+local NPCaimbot = nil
+local NPCPosition = nil
+local currentHighlight = nil
+local currentTargetType = nil
+local Selectedplayer = nil
+local MiniPlayerState = nil
+local MiniNpcState = nil
+local MiniPlayerCreated = false
+local MiniNpcCreated = false
+local MiniPlayerGui, MiniNpcGui = nil, nil
 
-local function createGui()
-	if ScreenGui then return end 
+local characterConnections = {}
+local Skills = {"X"}
+local Booms = {"TAP"}
 
-	ScreenGui = Instance.new("ScreenGui")
-	ScreenGui.Name = "FpsPingGui"
-	ScreenGui.ResetOnSpawn = false
-	ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+local PredictionAmount = 0.1
+local maxRange = 1000
 
-	FpsPingLabel = Instance.new("TextLabel")
-	FpsPingLabel.Name = "FpsPingLabel"
-	FpsPingLabel.Size = UDim2.new(0, 120, 0, 20)
-	FpsPingLabel.Position = UDim2.new(1, -10, 0, 10)
-	FpsPingLabel.AnchorPoint = Vector2.new(1, 0) 
-	FpsPingLabel.BackgroundTransparency = 1
-	FpsPingLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	FpsPingLabel.Font = Enum.Font.SourceSansBold
-	FpsPingLabel.TextSize = 18
-	FpsPingLabel.TextXAlignment = Enum.TextXAlignment.Right
-	FpsPingLabel.RichText = true
-	FpsPingLabel.Parent = ScreenGui
+local function getHRP(model)
+	if not model or not model:FindFirstChild("HumanoidRootPart") then return nil end
+	return model.HumanoidRootPart
 end
 
-local lastTime = tick()
-local frameCount = 0
-local fps = 0
-local fpsConn
+local function clearConnections()
+	for _, conn in ipairs(characterConnections) do
+		pcall(function() conn:Disconnect() end)
+	end
+	characterConnections = {}
+end
 
-local function startFPSLoop()
-    if fpsConn then return end
+local function getPredictedPosition(hrp)
+	if not hrp then return nil end
+
+	local humanoid = hrp.Parent:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return hrp.Position
+	end
+
+	if not PredictionEnabled or humanoid.WalkSpeed < 5 then
+		return hrp.Position
+	end
+
+	return hrp.Position + (hrp.Velocity * PredictionAmount)
+end
+
+local function createMiniToggle(name, position, stateVarRef, realVarSetter)
+	local playerGui = player:WaitForChild("PlayerGui")
+    if playerGui:FindFirstChild(name .. "MiniToggleGuiS") then
+        playerGui[name .. "MiniToggleGuiS"]:Destroy()
+    end
     
-    fpsConn = RunService.RenderStepped:Connect(function(deltaTime)
-        if not PingsOrFpsEnabled then
-            ScreenGui.Enabled = false
-            return
-        end
-        
-        createGui()
-        ScreenGui.Enabled = true
-        
-        frameCount = frameCount + 1
-        if tick() - lastTime >= 1 then
-            fps = frameCount
-            frameCount = 0
-            lastTime = tick()
-        end
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = name .. "MiniToggleGuiS"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
 
-        local ping = math.floor(LocalPlayer:GetNetworkPing() * 2000)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 55, 0, 24)
+    button.Position = position
+    button.Text = name .. (stateVarRef.value and " ON" or " OFF")
+    button.TextScaled = true
+    button.Font = Enum.Font.Gotham
+    button.TextColor3 = Color3.fromRGB(255,255,255)
+    button.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    button.BorderSizePixel = 0
+    button.Parent = screenGui
 
-        local fpsColor
-        if fps >= 50 then
-            fpsColor = "00FF00"
-        elseif fps >= 30 then
-            fpsColor = "FFA500"
-        else
-            fpsColor = "FF0000"
-        end
+    local uicorner = Instance.new("UICorner")
+    uicorner.CornerRadius = UDim.new(0,6)
+    uicorner.Parent = button
 
-        local pingColor
-        if ping <= 80 then
-            pingColor = "00FF00"
-        elseif ping <= 150 then
-            pingColor = "FFFF00"
-        else
-            pingColor = "FF0000"
-        end
+    local function updateUI(state)
+        button.Text = name .. (state and " ON" or " OFF")
+        button.BackgroundColor3 = state and Color3.fromRGB(60,160,60) or Color3.fromRGB(35,35,35)
+    end
 
-        FpsPingLabel.Text = string.format(
-            '<font color="#%s">FPS: %d</font>  |  <font color="#%s">Ping: %dms</font>',
-            fpsColor,
-            fps,
-            pingColor,
-            ping
-        )
+    button.MouseButton1Click:Connect(function()
+        stateVarRef.value = not stateVarRef.value
+        realVarSetter(stateVarRef.value)
+        updateUI(stateVarRef.value)
     end)
-end
 
-local function stopFPSLoop()
-    if fpsConn then
-        fpsConn:Disconnect()
-        fpsConn = nil
+    -- Dragging functionality
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    local function onInputBegan(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = button.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
     end
+
+    local function onInputChanged(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+            local delta = input.Position - dragStart
+            button.Position = UDim2.new(
+                0,
+                math.clamp(startPos.X.Offset + delta.X, 0, camera.ViewportSize.X - button.AbsoluteSize.X),
+                0,
+                math.clamp(startPos.Y.Offset + delta.Y, 0, camera.ViewportSize.Y - button.AbsoluteSize.Y)
+            )
+        end
+    end
+
+    button.InputBegan:Connect(onInputBegan)
+    button.InputChanged:Connect(onInputChanged)
+
+    updateUI(stateVarRef.value)
+    return screenGui
 end
 
-local function FPSBoost()
-	Lighting.FogEnd = 1e9
-	Lighting.FogStart = 1e9
-	Lighting.ClockTime = 12
-	Lighting.GlobalShadows = false
-	Lighting.Brightness = 2
-	Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+-- =========================
+-- Team Check
+-- =========================
+local function isAllyWithMe(targetplayer)
+	local myGui = player:FindFirstChild("PlayerGui")
+	if not myGui then return false end
 
-	if Terrain then
-	    Terrain.WaterWaveSize = 0
-	    Terrain.WaterWaveSpeed = 0
-	    Terrain.WaterReflectance = 0
-	    Terrain.WaterTransparency = 1
+	local scrolling = myGui:FindFirstChild("Main")
+		and myGui.Main:FindFirstChild("Allies")
+		and myGui.Main.Allies:FindFirstChild("Container")
+		and myGui.Main.Allies.Container:FindFirstChild("Allies")
+		and myGui.Main.Allies.Container.Allies:FindFirstChild("ScrollingFrame")
+
+	if scrolling then
+		for _, frame in pairs(scrolling:GetDescendants()) do
+			if frame:IsA("ImageButton") and frame.Name == targetplayer.Name then
+				return true
+			end
+		end
 	end
+
+	return false
+end
+
+local function isEnemy(targetplayer)
+	if not targetplayer or targetplayer == player then
+		return false
+	end
+
+	local myTeam = player.Team
+	local targetTeam = targetplayer.Team
+
+	if myTeam and targetTeam then
+		if myTeam.Name == "Pirates" and targetTeam.Name == "Marines" then
+			return true
+		elseif myTeam.Name == "Marines" and targetTeam.Name == "Pirates" then
+			return true
+		end
+
+		if myTeam.Name == "Pirates" and targetTeam.Name == "Pirates" then
+			if isAllyWithMe(targetplayer) then
+				return false -- ally, not enemy
+			end
+			return true
+		end
+
+		if myTeam.Name == "Marines" and targetTeam.Name == "Marines" then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function getClosestplayer(lpHRP)
+	if not lpHRP then return nil end
 	
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("MeshPart") or v:IsA("CornerWedgePart") or v:IsA("TrussPart") then
-            v.Material = Enum.Material.SmoothPlastic
-            v.Reflectance = 0
-        elseif v:IsA("Decal") or v:IsA("Texture") then  
-		    v:Destroy()
-        elseif v:IsA("ParticleEmitter") then
-            v.Lifetime = NumberRange.new(0, 0)
-        elseif v:IsA("Trail") then
-	        v.Lifetime = 0
-        elseif v:IsA("Explosion") then
-	        v.BlastPressure = 1
-			v.BlastRadius = 1
-        elseif v:IsA("BasePart") then
-            v.CastShadow = false
-        elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
-			v.Enabled = false
-        end
-    end
-    
-    if fpsBoostConn then
-	    fpsBoostConn:Disconnect()
-	    fpsBoostConn = nil
+	local closest = nil
+	local closestDist = math.huge
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl ~= player and isEnemy(pl) and pl.Character and pl.Character.Parent ~= nil then
+			local hum = pl.Character:FindFirstChildWhichIsA("Humanoid")
+			local hrp = getHRP(pl.Character)
+			if hum and hum.Health > 0 and hrp then
+				local dist = (hrp.Position - lpHRP.Position).Magnitude
+				if dist <= maxRange and dist < closestDist then
+					closestDist = dist
+					closest = pl
+				end
+			end
+		end
 	end
-	
-	fpsBoostConn = Workspace.DescendantAdded:Connect(function(v)
-	    task.wait(0.1)
-        if v:IsA("ParticleEmitter") then
-            v.Lifetime = NumberRange.new(0, 0)
-        elseif v:IsA("Trail") then
-	        v.Lifetime = 0
-        elseif v:IsA("Explosion") then
-	        v.BlastPressure = 1
-			v.BlastRadius = 1
-	    elseif v:IsA("BasePart") then
-	        v.CastShadow = false
-		elseif v:IsA("Fire") or v:IsA("SpotLight") or v:IsA("Smoke") then
-			v.Enabled = false
-	    end
-	end)
+	return closest
 end
 
-do
-	if fog then
-		local c = game.Lighting
-	    c.FogEnd = 100000
-	    for r, v in pairs(c:GetDescendants()) do
-	        if v:IsA("Atmosphere") then
-	            v:Destroy()
-	        end
-	    end
-	end
-end
+local function getClosestNPC(lpHRP)
+    if not lpHRP then return nil end
 
-do
-	if Lava then
-		for i, v in pairs(game.Workspace:GetDescendants()) do
-			if v.Name == "Lava" then
-				v:Destroy();
-			end;
-		end;
-		for i, v in pairs(game.ReplicatedStorage:GetDescendants()) do
-			if v.Name == "Lava" then
-				v:Destroy();
-			end;
-		end;
-	end
-end
+    local enemiesFolder = workspace:FindFirstChild("Enemies")
+    if not enemiesFolder then return nil end
 
-local function infinitestam(state)
-    InfiniteEnergy = state
-    
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    local energy = character:FindFirstChild("Energy")
-    if not energy then return end
-
-    if not state then
-        if energyConnection then
-            energyConnection:Disconnect()
-            energyConnection = nil
-        end
-        return
-    end
-    
-    if not energyConnection then
-        energyConnection = energy.Changed:Connect(function()
-            if InfiniteEnergy then
-                energy.Value = energy.MaxValue
-            end
-        end)
-    end
-end
-
-local Config = {
-    AttackDistance = 200,
-    AttackMobs = true,
-    AttackPlayers = true,
-    AttackCooldown = 0.001,
-    ComboResetTime = 0.001,
-    MaxCombo = 2,
-    HitboxLimbs = {"RightLowerArm", "RightUpperArm", "LeftLowerArm", "LeftUpperArm", "RightHand", "LeftHand"},
-    AutoClickEnabled = true
-}
-
-local FastAttack = {}
-FastAttack.__index = FastAttack
-
-function FastAttack.new()
-    local self = setmetatable({
-        Debounce = 0,
-        ComboDebounce = 0,
-        ShootDebounce = 0,
-        M1Combo = 0,
-        EnemyRootPart = nil,
-        Connections = {},
-        Overheat = {
-            Dragonstorm = {
-                Cooldown = 0,
-                Distance = 350,
-            }
-        },
-    }, FastAttack)
-    
-    pcall(function()
-        self.CombatFlags = require(Modules.Flags).COMBAT_REMOTE_THREAD
-        self.ShootFunction = getupvalue(require(ReplicatedStorage.Controllers.CombatController).Attack, 9)
-        local LocalScript = LocalPlayer:WaitForChild("PlayerScripts"):FindFirstChildOfClass("LocalScript")
-        if LocalScript and getsenv then
-            self.HitFunction = getsenv(LocalScript)._G.SendHitsToServer
-        end
-    end)
-    
-    return self
-end
-
-function FastAttack:IsEntityAlive(entity)
-    local humanoid = entity and entity:FindFirstChild("Humanoid")
-    return humanoid and humanoid.Health > 0
-end
-
-function FastAttack:CheckStun(Character, Humanoid, ToolTip)
-    local Stun = Character:FindFirstChild("Stun")
-    local Busy = Character:FindFirstChild("Busy")
-    if Humanoid.Sit and (ToolTip == "Sword" or ToolTip == "Melee" or ToolTip == "Blox Fruit") then
-        return false
-    elseif Stun and Stun.Value > 0 or Busy and Busy.Value then
-        return false
-    end
-    return true
-end
-
-function FastAttack:GetBladeHits(Character, Distance)
-    local Position = Character:GetPivot().Position
-    local BladeHits = {}
-    Distance = Distance or Config.AttackDistance
-    
-    local function ProcessTargets(Folder, CanAttack)
-        for _, Enemy in ipairs(Folder:GetChildren()) do
-            if Enemy ~= Character and self:IsEntityAlive(Enemy) then
-                local BasePart = Enemy:FindFirstChild(Config.HitboxLimbs[math.random(#Config.HitboxLimbs)]) or Enemy:FindFirstChild("HumanoidRootPart")
-                if BasePart and (Position - BasePart.Position).Magnitude <= Distance then
-                    if not self.EnemyRootPart then
-                        self.EnemyRootPart = BasePart
-                    else
-                        table.insert(BladeHits, {Enemy, BasePart})
-                    end
+    local closest = nil
+    local closestDist = math.huge
+    for _, npc in ipairs(enemiesFolder:GetChildren()) do
+        if npc:IsA("Model") then
+            local hum = npc:FindFirstChildWhichIsA("Humanoid")
+            local hrp = getHRP(npc)
+            if hum and hum.Health > 0 and hrp then
+                local dist = (hrp.Position - lpHRP.Position).Magnitude
+                if dist <= maxRange and dist < closestDist then
+                    closestDist = dist
+                    closest = npc
                 end
             end
         end
     end
-    
-    if Config.AttackMobs then ProcessTargets(Workspace.Enemies) end
-    if Config.AttackPlayers then ProcessTargets(Workspace.Characters, true) end
-    
-    return BladeHits
+    return closest
 end
 
-function FastAttack:GetClosestEnemy(Character, Distance)
-    local BladeHits = self:GetBladeHits(Character, Distance)
-    local Closest, MinDistance = nil, math.huge
-    
-    for _, Hit in ipairs(BladeHits) do
-        local Magnitude = (Character:GetPivot().Position - Hit[2].Position).Magnitude
-        if Magnitude < MinDistance then
-            MinDistance = Magnitude
-            Closest = Hit[2]
-        end
-    end
-    return Closest
+local function applyHighlight(targetModel, targetType)
+    if not HighlightEnabled then return end
+    if not targetModel then return end
+    if currentHighlight and currentHighlight.Adornee == targetModel then return end
+
+    if currentHighlight then  
+        currentHighlight:Destroy()  
+        currentHighlight = nil  
+        currentTargetType = nil  
+    end  
+
+    local hl = Instance.new("Highlight")  
+    hl.FillColor = Color3.fromRGB(255, 255, 0)  
+    hl.OutlineColor = Color3.fromRGB(255, 255, 0)  
+    hl.FillTransparency = 0.5  
+    hl.OutlineTransparency = 0  
+    hl.Adornee = targetModel  
+    hl.Parent = targetModel  
+    currentHighlight = hl  
+    currentTargetType = targetType
+
+    VSkillModule:CheckVSkillUsage(SilentAimModule)
 end
 
-function FastAttack:GetCombo()
-    local Combo = (tick() - self.ComboDebounce) <= Config.ComboResetTime and self.M1Combo or 0
-    Combo = Combo >= Config.MaxCombo and 1 or Combo + 1
-    self.ComboDebounce = tick()
-    self.M1Combo = Combo
-    return Combo
-end
-
-function FastAttack:ShootInTarget(TargetPosition)
-    local Character = LocalPlayer.Character
-    if not self:IsEntityAlive(Character) then return end
-    
-    local Equipped = Character:FindFirstChildOfClass("Tool")
-    if not Equipped or Equipped.ToolTip ~= "Gun" then return end
-    
-    local Cooldown = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or 0.3
-    if (tick() - self.ShootDebounce) < Cooldown then return end
-    
-    local ShootType = self.SpecialShoots[Equipped.Name] or "Normal"
-    if ShootType == "Position" or (ShootType == "TAP" and Equipped:FindFirstChild("RemoteEvent")) then
-        Equipped:SetAttribute("LocalTotalShots", (Equipped:GetAttribute("LocalTotalShots") or 0) + 1)
-        GunValidator:FireServer(self:GetValidator2())
-        
-        if ShootType == "TAP" then
-            Equipped.RemoteEvent:FireServer("TAP", TargetPosition)
-        else
-            ShootGunEvent:FireServer(TargetPosition)
-        end
-        self.ShootDebounce = tick()
-    else
-        self.ShootDebounce = tick()
+local function clearHighlight()
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+        currentTargetType = nil
     end
 end
 
-function FastAttack:GetValidator2()
-    local v1 = getupvalue(self.ShootFunction, 15)
-    local v2 = getupvalue(self.ShootFunction, 13)
-    local v3 = getupvalue(self.ShootFunction, 16)
-    local v4 = getupvalue(self.ShootFunction, 17)
-    local v5 = getupvalue(self.ShootFunction, 14)
-    local v6 = getupvalue(self.ShootFunction, 12)
-    local v7 = getupvalue(self.ShootFunction, 18)
-    
-    local v8 = v6 * v2
-    local v9 = (v5 * v2 + v6 * v1) % v3
-    v9 = (v9 * v3 + v8) % v4
-    v5 = math.floor(v9 / v3)
-    v6 = v9 - v5 * v3
-    v7 = v7 + 1
-    
-    setupvalue(self.ShootFunction, 15, v1)
-    setupvalue(self.ShootFunction, 13, v2)
-    setupvalue(self.ShootFunction, 16, v3)
-    setupvalue(self.ShootFunction, 17, v4)
-    setupvalue(self.ShootFunction, 14, v5)
-    setupvalue(self.ShootFunction, 12, v6)
-    setupvalue(self.ShootFunction, 18, v7)
-    
-    return math.floor(v9 / v4 * 16777215), v7
-end
+local function isSkillReadyForTool(toolName)
+    if not toolName then return false end
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+    local skillsFolder = playerGui:FindFirstChild("Main") and playerGui.Main:FindFirstChild("Skills")
+    if not skillsFolder then return false end
+    local toolFrame = skillsFolder:FindFirstChild(toolName)
+    if not toolFrame then return false end
 
-function FastAttack:UseNormalClick(Character, Humanoid, Cooldown)
-    self.EnemyRootPart = nil
-    local BladeHits = self:GetBladeHits(Character)
-    
-    if self.EnemyRootPart then
-        RegisterAttack:FireServer(Cooldown)
-        if self.CombatFlags and self.HitFunction then
-            self.HitFunction(self.EnemyRootPart, BladeHits)
-        else
-            RegisterHit:FireServer(self.EnemyRootPart, BladeHits)
+    for _, skillKey in ipairs({"Z","X","C","V"}) do
+        local skill = toolFrame:FindFirstChild(skillKey)
+        if skill and skill:FindFirstChild("Cooldown") and skill.Cooldown:IsA("Frame") then
+            local cooldownSize = skill.Cooldown.Size.X.Scale
+            if cooldownSize == 1.0 then
+                return true
+            end
         end
     end
+    return false
 end
 
-function FastAttack:UseFruitM1(Character, Equipped, Combo)
-    local range = Config.AttackDistance
-    local Targets = self:GetBladeHits(Character, range)
-    if not Targets[1] then return end
-
-    local Direction = (Targets[1][2].Position - Character:GetPivot().Position).Unit
-    Equipped.LeftClickRemote:FireServer(Direction, Combo)
+local function isNotDoughValidCondition()
+    return (currentTool and currentTool.Name == "Dough-Dough")
 end
 
-function FastAttack:Attack()
-    if not Config.AutoClickEnabled or (tick() - self.Debounce) < Config.AttackCooldown then return end
-    local Character = LocalPlayer.Character
-    if not Character or not self:IsEntityAlive(Character) then return end
-    
-    local Humanoid = Character.Humanoid
-    local Equipped = Character:FindFirstChildOfClass("Tool")
-    if not Equipped then return end
-    
-    local ToolTip = Equipped.ToolTip
-    if not table.find({"Melee", "Blox Fruit", "Sword", "Gun"}, ToolTip) then return end
-    
-    local Cooldown = Equipped:FindFirstChild("Cooldown") and Equipped.Cooldown.Value or Config.AttackCooldown
-    if not self:CheckStun(Character, Humanoid, ToolTip) then return end
-    
-    local Combo = self:GetCombo()
-    Cooldown = Cooldown + (Combo >= Config.MaxCombo and 0.05 or 0)
-    self.Debounce = Combo >= Config.MaxCombo and ToolTip ~= "Gun" and (tick() + 0.05) or tick()
-    
-    if ToolTip == "Blox Fruit" and Equipped:FindFirstChild("LeftClickRemote") then
-        self:UseFruitM1(Character, Equipped, Combo)
-    elseif ToolTip == "Gun" then
-        local Target = self:GetClosestEnemy(Character, 120)
-        if Target then
-            self:ShootInTarget(Target.Position)
+local function isNotValidCondition()
+    return (currentTool and currentTool.Name == "Lightning-Lightning")
+    or (currentTool and currentTool.Name == "Portal-Portal")
+end
+
+local function startRenderLoop()
+    if renderConnection then return end
+
+    renderConnection = RunService.RenderStepped:Connect(function()
+        local lpChar = player.Character
+        if not lpChar then return end
+        local lpHRP = lpChar:FindFirstChild("HumanoidRootPart")
+        if not lpHRP then return end
+
+        if not SilentAimPlayersEnabled and not SilentAimNPCsEnabled then
+            return
         end
-    else
-        self:UseNormalClick(Character, Humanoid, Cooldown)
-    end
-end
 
-local AttackInstance = FastAttack.new()
-local function startFastAttack()
-    if fastConn then return end
-    fastConn = RunService.Stepped:Connect(function()
-        if FastAttackEnabled then
-            AttackInstance:Attack()
+        local targetModel = nil
+        local lookTargetPos = nil
+
+        if SilentAimPlayersEnabled then
+            local targetplayer = Selectedplayer or getClosestplayer(lpHRP)
+            if targetplayer and targetplayer ~= player and targetplayer.Character then
+                playersaimbot = targetplayer.Name
+                local hrp = getHRP(targetplayer.Character)
+                PlayersPosition = getPredictedPosition(hrp)
+                lookTargetPos = PlayersPosition
+                targetModel = targetplayer.Character
+                applyHighlight(targetModel, "player")
+            else
+                playersaimbot, PlayersPosition = nil, nil
+            end
+        elseif currentTargetType == "player" then
+            playersaimbot, PlayersPosition = nil, nil
+            clearHighlight()
         end
+
+        if SilentAimNPCsEnabled then  
+            local closestNPC = getClosestNPC(lpHRP)  
+            if closestNPC then  
+                NPCaimbot = closestNPC.Name  
+                local hrp = getHRP(closestNPC)  
+                NPCPosition = getPredictedPosition(hrp)
+                lookTargetPos = NPCPosition
+                if not targetModel then  
+                    targetModel = closestNPC  
+                    applyHighlight(targetModel, "NPC")  
+                end  
+            else  
+                NPCaimbot, NPCPosition = nil, nil  
+            end
+        elseif currentTargetType == "NPC" then
+            NPCaimbot, NPCPosition = nil, nil  
+            clearHighlight()
+        end
+        if currentTool and lookTargetPos and isSkillReadyForTool(currentTool.Name) and not isNotDoughValidCondition() then
+	        local lookVector = (Vector3.new(lookTargetPos.X, lpHRP.Position.Y, lookTargetPos.Z) - lpHRP.Position).Unit
+	            lpHRP.CFrame = CFrame.new(lpHRP.Position, lpHRP.Position + lookVector)
+	    end
     end)
 end
 
-local function stopFastAttack()
-    if fastConn then
-        fastConn:Disconnect()
-        fastConn = nil
+local function stopRenderLoop()
+    if renderConnection then
+        renderConnection:Disconnect()
+        renderConnection = nil
     end
 end
 
-LocalPlayer.CharacterAdded:Connect(function()
-    task.wait(1)
-    infinitestam()
-end)
-
-if LocalPlayer.Character then
-    infinitestam()
+local function hookTool(tool)
+    currentTool = tool
+    table.insert(characterConnections, tool.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            currentTool = nil
+        end
+    end))
 end
 
-function StuffsModule:SetFpsBoost(state)
-    FpsBoostEnabled = state
+local function isValidCondition()
+    return (currentTool and currentTool.Name == "Buddy Sword")
+end
+
+spawn(function()
+    local ok, hookMeta = pcall(getrawmetatable, game)
+    if ok and hookMeta then
+        setreadonly(hookMeta, false)
+        local OldHook
+        OldHook = hookmetamethod(game, "__namecall", function(self, V1, V2, ...)
+            local Method = (getnamecallmethod and getnamecallmethod():lower()) or ""
+
+            if tostring(self) == "RemoteEvent" and Method == "fireserver" then
+                if typeof(V1) == "Vector3" then
+                    if SilentAimPlayersEnabled and PlayersPosition then
+                        return OldHook(self, PlayersPosition, V2, ...)
+                    elseif SilentAimNPCsEnabled and NPCPosition then
+                        return OldHook(self, NPCPosition, V2, ...)
+                    end
+				end				
+				if type(V1) == "string" and table.find(Booms, V1) then
+					if ZSkillorM1 then 
+	                    if SilentAimPlayersEnabled and PlayersPosition then
+	                        return OldHook(self, V1, PlayersPosition, nil, ...)
+	                    elseif SilentAimNPCsEnabled and NPCPosition then
+	                        return OldHook(self, V1, NPCPosition, nil, ...)
+	                    end
+					end
+				end   
+            elseif Method == "invokeserver" then  
+	            if isValidCondition() then
+	                if type(V1) == "string" and table.find(Skills, V1) then  
+	                    if SilentAimPlayersEnabled and PlayersPosition then  
+	                        return OldHook(self, V1, PlayersPosition, nil, ...)
+	                    elseif SilentAimNPCsEnabled and NPCPosition then
+		                    return OldHook(self, V1, NPCPosition, nil, ...)
+	                    end  
+	                end    
+				end				
+			end
+            
+            return OldHook(self, V1, V2, ...)
+        end)
+        setreadonly(hookMeta, true)
+    end
+end)
+
+if not isNotValidCondition() then
+	if MouseModule and typeof(MouseModule) == "Instance" then
+        local ok2, okResult = pcall(function()
+            return require(MouseModule)
+        end)
+
+        if ok2 and okResult then  
+            if type(okResult) == "table" then  
+                Mouse = okResult  
+            else  
+                Mouse = nil  
+            end  
+        else  
+            Mouse = nil  
+        end  
+
+        if Mouse then  
+            local Character = player.Character or player.CharacterAdded:Wait()  
+            local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")  
+
+            if RootPart then  
+                pcall(function()  
+                    if type(Mouse) == "table" then  
+                        Mouse.Hit = CFrame.new(RootPart.Position)  
+                        Mouse.Target = RootPart  
+                    end  
+                end)  
+            else  
+                task.spawn(function()  
+                    local Character = player.Character or player.CharacterAdded:Wait()  
+                    local RootPart = Character:WaitForChild("HumanoidRootPart")  
+                    pcall(function()  
+                        if type(Mouse) == "table" then  
+                            Mouse.Hit = CFrame.new(RootPart.Position)  
+                            Mouse.Target = RootPart  
+                        end  
+                    end)  
+                end)  
+            end  
+        end  
+
+        RunService.Heartbeat:Connect(function()  	        
+		    if not ZSkillorM1 or (not SilentAimPlayersEnabled and not SilentAimNPCsEnabled) then
+		        return
+		    end
+		
+            if Mouse and ZSkillorM1 and (SilentAimPlayersEnabled or SilentAimNPCsEnabled) then  
+                local targetCFrame = nil  
+
+                if PlayersPosition then  
+                    targetCFrame = CFrame.new(PlayersPosition)  
+                elseif NPCPosition then  
+                    targetCFrame = CFrame.new(NPCPosition)  
+                end  
+
+                if targetCFrame then  
+                    pcall(function()  
+                        if type(Mouse) == "table" then  
+                            Mouse.Hit = targetCFrame  
+                            Mouse.Target = nil  
+                        end  
+                    end)  
+
+                    if MouseModule then  
+                        local ok, MouseData = pcall(require, MouseModule)  
+                        if ok and type(MouseData) == "table" then  
+                            MouseData.Hit = targetCFrame  
+                            MouseData.Target = nil  
+                        end  
+                    end  
+                end  
+            end  
+        end)
+    end
+end
+
+local HasTag = function(tagName)
+  local char = player.Character
+  if (not char) then return false; end
+  return Services.CollectionService:HasTag(char, tagName);
+end
+
+local function startAutoKenLoop()
+    if autoKenRunning then return end
+    autoKenRunning = true
+
+    task.spawn(function()
+        while AutoKen do
+            task.wait(0.1)
+
+            if HasTag("Ken") then
+                local playerGui = player:FindFirstChild("PlayerGui")
+                if playerGui then
+                    local kenButton = playerGui:FindFirstChild("MobileContextButtons")
+                    and playerGui.MobileContextButtons.ContextButtonFrame:FindFirstChild("BoundActionKen")
+
+                    if kenButton and kenButton:GetAttribute("Selected") ~= true then
+                        kenButton:SetAttribute("Selected", true)
+                    end
+                end
+
+                local observationManager = getrenv()._G.OM
+                if observationManager and not observationManager.active then
+                    observationManager.radius = 0
+                    observationManager:setActive(true)
+                    commE:FireServer("Ken", true)
+                end
+            end
+        end
+        autoKenRunning = false
+    end)
+end
+
+local function onCharacterAdded(char)
+    clearConnections()
+
+    for _, child in ipairs(char:GetChildren()) do
+        if child:IsA("Tool") then
+            hookTool(child)
+        end
+    end
+
+    table.insert(characterConnections, char.ChildAdded:Connect(function(child)
+        if child:IsA("Tool") then hookTool(child) end
+    end))
+
+    table.insert(characterConnections, char.ChildRemoved:Connect(function(child)
+        if child == currentTool then
+            currentTool = nil
+        end
+    end))
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+if player.Character then onCharacterAdded(player.Character) end
+
+function SilentAimModule:SetAutoKen(state)
+    AutoKen = state
+
     if state then
-        FPSBoost()
+        startAutoKenLoop()
+    end
+end
+
+function SilentAimModule:SetZSkillorM1(state)
+    ZSkillorM1 = state
+end
+
+function SilentAimModule:Pause()
+	SilentAimPlayersEnabled = false
+	SilentAimNPCsEnabled = false
+end
+
+function SilentAimModule:Restore()
+	SilentAimPlayersEnabled = UserWantsplayerAim
+	SilentAimNPCsEnabled = UserWantsNPCAim
+end
+
+function SilentAimModule:IsplayerAimEnabled()
+    return SilentAimPlayersEnabled
+end
+
+function SilentAimModule:IsNPCAimEnabled()
+    return SilentAimNPCsEnabled
+end
+
+function SilentAimModule:SetDistanceLimit(num)
+	if typeof(num) == "number" then
+		maxRange = num
+	end
+end
+
+function SilentAimModule:SetSelectedPlayer(playerName)
+	if not playerName or playerName == "" then
+		Selectedplayer = nil
+		return
+	end
+
+	local found = Players:FindFirstChild(playerName)
+	if found then
+		Selectedplayer = found
+	end
+end
+
+function SilentAimModule:GetSelectedPlayer()
+	return Selectedplayer and Selectedplayer.Name or "None"
+end
+
+function SilentAimModule:SetPrediction(state)
+	PredictionEnabled = state
+end
+
+function SilentAimModule:SetHighlight(state)
+    HighlightEnabled = state
+    if not state then
+        clearHighlight()
+    end
+end
+
+function SilentAimModule:IsHighlightEnabled()
+    return HighlightEnabled
+end
+
+function SilentAimModule:SetPredictionAmount(num)
+	if typeof(num) == "number" then
+		PredictionAmount = num
+	end
+end
+
+function SilentAimModule:SetPlayerSilentAim(state)
+    UserWantsplayerAim = state
+    SilentAimPlayersEnabled = state
+
+    if state then
+        startRenderLoop()
     else
-        if fpsBoostConn then
-            fpsBoostConn:Disconnect()
-            fpsBoostConn = nil
+        if not SilentAimNPCsEnabled then
+            stopRenderLoop()
         end
     end
 end
 
-function StuffsModule:SetINFEnergy(state)
-    infinitestam(state)
-end
+function SilentAimModule:SetNPCSilentAim(state)
+    UserWantsNPCAim = state
+    SilentAimNPCsEnabled = state
 
-function StuffsModule:SetFog(state)
-    fog = state
-end
-
-function StuffsModule:SetLava(state)
-    Lava = state
-end
-
-function StuffsModule:SetRejoinServer(state)
-    game:GetService("TeleportService"):Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
-end
-
-function StuffsModule:SetFastAttack(state)
-    FastAttackEnabled = state
     if state then
-        startFastAttack()
+        startRenderLoop()
     else
-        stopFastAttack()
+        if not SilentAimPlayersEnabled then
+            stopRenderLoop()
+        end
     end
 end
 
-function StuffsModule:SetWalkWater(state)
-    WalkWaterEnabled = state
-    if WalkWaterEnabled then
-        waterPart.Size = Vector3.new(1000,110,1000)
+local function UpdateSilentAimState()
+    SilentAimPlayersEnabled = MiniPlayerState and MiniPlayerState.value or false
+    SilentAimNPCsEnabled    = MiniNpcState and MiniNpcState.value or false
+
+    UserWantsplayerAim = SilentAimPlayersEnabled
+    UserWantsNPCAim    = SilentAimNPCsEnabled
+
+    if SilentAimPlayersEnabled or SilentAimNPCsEnabled then
+        startRenderLoop()
     else
-        waterPart.Size = Vector3.new(1000,80,1000)
+        stopRenderLoop()
+        clearHighlight()
     end
 end
 
-function StuffsModule:SetPingsOrFps(state)
-    PingsOrFpsEnabled = state
-    if state then
-        startFPSLoop()
-    else
-        stopFPSLoop()
+function SilentAimModule:SetMiniTogglePlayerSilentAim(state)
+    if not MiniPlayerCreated and state then
+        MiniPlayerState = { value = SilentAimPlayersEnabled }
+        MiniPlayerGui = createMiniToggle("Player", UDim2.new(0,10,0,90), MiniPlayerState, function(val)
+            MiniPlayerState.value = val
+            UpdateSilentAimState()
+        end)
+        MiniPlayerCreated = true
+    elseif MiniPlayerCreated then
+        if MiniPlayerGui then
+            MiniPlayerGui.Enabled = state
+        end
     end
 end
 
-return StuffsModule
+function SilentAimModule:SetMiniToggleNpcSilentAim(state)
+    if not MiniNpcCreated and state then
+        MiniNpcState = { value = SilentAimNPCsEnabled }
+        MiniNpcGui = createMiniToggle("NPC", UDim2.new(0,10,0,50), MiniNpcState, function(val)
+            MiniNpcState.value = val
+            UpdateSilentAimState()
+        end)
+        MiniNpcCreated = true
+    elseif MiniNpcCreated then
+        if MiniNpcGui then
+            MiniNpcGui.Enabled = state
+        end
+    end
+end
+
+return SilentAimModule
